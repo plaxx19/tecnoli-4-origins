@@ -163,3 +163,212 @@ a { color: inherit; text-decoration: none; }
   .category-sections { grid-template-columns: 1fr; }
   .mini-card .product-name { font-size: 9px; }
 }
+
+/* Estilos para Arma tu PC (Drag & Drop) */
+.pc-builder-section {
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px;
+  margin-top: 24px;
+}
+.builder-instructions {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: -4px;
+  margin-bottom: 16px;
+}
+.builder-container {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 20px;
+}
+.builder-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.drop-slot {
+  background: #fff;
+  border: 2px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 12px;
+  min-height: 100px;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+.drop-slot.drag-over {
+  border-color: var(--blue);
+  background: #eef6ff;
+}
+.drop-slot.filled {
+  border-style: solid;
+  border-color: #8bbcf5;
+}
+.slot-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.slot-content {
+  font-size: 11px;
+  color: #94a3b8;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  flex: 1;
+  text-align: center;
+}
+.slotted-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.slotted-item strong {
+  font-size: 11px;
+  color: var(--ink);
+}
+.remove-slotted {
+  background: none;
+  border: 0;
+  color: #ef4444;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+/* Panel de Diagnóstico */
+.builder-summary {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+.builder-summary h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+.summary-details {
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #334155;
+}
+.performance-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  background: #dbeafe;
+  color: #1e40af;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.summary-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+/* Permitir arrastrar tarjetas */
+.product-card[draggable="true"] {
+  cursor: grab;
+}
+.product-card[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+@media (max-width: 850px) {
+  .builder-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Layout Dividido en 2 Columnas */
+.layout-split {
+  display: grid;
+  grid-template-columns: 1fr 380px; /* 380px fijos para el armador vertical */
+  gap: 24px;
+  align-items: start;
+  margin-top: 20px;
+}
+
+/* Columna Izquierda (Catálogo desplazable) */
+.catalog-column {
+  min-width: 0; /* Previene desbordamiento de grillas */
+}
+
+.category-sections {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important; /* Ajuste a 2 columnas de categorías */
+}
+
+/* Columna Derecha (Fija / Sticky Vertical) */
+.builder-column {
+  position: sticky;
+  top: 15px; /* Margen superior cuando se congela en pantalla */
+  max-height: calc(100vh - 30px);
+  overflow-y: auto; /* Permite scroll interno si la pantalla es pequeña */
+}
+
+/* Estilos de la sección vertical de armado */
+.pc-builder-section {
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 0;
+}
+
+#case-3d-container {
+  width: 100%;
+  height: 220px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  margin-bottom: 12px;
+}
+
+/* Casillas verticales compactas */
+.builder-slots {
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* 2 columnas de casillas dentro de la barra lateral */
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.drop-slot {
+  min-height: 65px;
+  padding: 6px 8px;
+}
+
+.slot-label {
+  font-size: 10px;
+  margin-bottom: 3px;
+}
+
+.slot-content {
+  font-size: 9px;
+}
+
+/* En dispositivos móviles se convierte en diseño de 1 sola columna */
+@media (max-width: 950px) {
+  .layout-split {
+    grid-template-columns: 1fr;
+  }
+
+  .builder-column {
+    position: static;
+    max-height: none;
+  }
+}

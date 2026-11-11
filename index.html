@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="./styles.css" />
   <script type="module" src="./script.js"></script>
 </head>
 <body>
@@ -25,7 +25,7 @@
 
     <form class="search" id="search-form" role="search">
       <button aria-label="Buscar" type="submit">⌕</button>
-      <input id="search-input" type="search" placeholder="Buscar productos..." autocomplete="off" />
+      <input id="search-input" type="search" placeholder="Buscar componentes..." autocomplete="off" />
     </form>
 
     <div class="header-actions">
@@ -67,58 +67,125 @@
       <div class="hero-dots" aria-label="Diapositiva 1 de 3"><i class="selected"></i><i></i><i></i></div>
     </section>
 
-    <section class="section-block best-section" id="mas-vendidos">
-      <div class="section-heading">
-        <h2><span class="heading-accent orange"></span>Los 5 más vendidos</h2>
-        <a href="#catalogo">Ver todos <span>›</span></a>
+    <!-- Layout dividido: Catálogo a la izquierda, Armador Fijo 3D a la derecha -->
+    <div class="layout-split">
+      
+      <!-- Columna Catálogo de Productos -->
+      <div class="catalog-column">
+        <section class="section-block best-section" id="mas-vendidos">
+          <div class="section-heading">
+            <h2><span class="heading-accent orange"></span>Los 5 más vendidos</h2>
+            <a href="#catalogo">Ver todos <span>›</span></a>
+          </div>
+          <div class="best-grid" id="best-products" aria-live="polite"></div>
+        </section>
+
+        <div id="catalogo" class="category-sections">
+          <section class="section-block category-section" id="gpu">
+            <div class="section-heading"><h2><span class="heading-accent cyan"></span>GPU</h2><a href="#gpu">Ver todos <span>›</span></a></div>
+            <div class="mini-grid" data-category="GPU"></div>
+          </section>
+          
+          <section class="section-block category-section" id="motherboard">
+            <div class="section-heading"><h2><span class="heading-accent cyan"></span>Motherboards</h2><a href="#motherboard">Ver todos <span>›</span></a></div>
+            <div class="mini-grid" data-category="Motherboard"></div>
+          </section>
+
+          <section class="section-block category-section" id="ram">
+            <div class="section-heading"><h2><span class="heading-accent yellow"></span>Memorias RAM</h2><a href="#ram">Ver todos <span>›</span></a></div>
+            <div class="mini-grid" data-category="RAM"></div>
+          </section>
+
+          <section class="section-block category-section" id="almacenamiento">
+            <div class="section-heading"><h2><span class="heading-accent navy"></span>Almacenamiento</h2><a href="#almacenamiento">Ver todos <span>›</span></a></div>
+            <div class="mini-grid" data-category="almacenamiento"></div>
+          </section>
+
+          <section class="section-block category-section" id="fuente-de-poder">
+            <div class="section-heading"><h2><span class="heading-accent orange"></span>Fuentes de poder</h2><a href="#fuente-de-poder">Ver todos <span>›</span></a></div>
+            <div class="mini-grid" data-category="fuente de poder"></div>
+          </section>
+
+          <section class="section-block category-section" id="gabinete">
+            <div class="section-heading"><h2><span class="heading-accent yellow"></span>Gabinetes</h2><a href="#gabinete">Ver todos <span>›</span></a></div>
+            <div class="mini-grid" data-category="gabinete"></div>
+          </section>
+
+          <section class="section-block category-section" id="refrigeracion">
+            <div class="section-heading"><h2><span class="heading-accent cyan"></span>Refrigeración</h2><a href="#refrigeracion">Ver todos <span>›</span></a></div>
+            <div class="mini-grid" data-category="refrigeracion"></div>
+          </section>
+        </div>
+
+        <p class="status-message" id="status-message" role="status"></p>
       </div>
-      <div class="best-grid" id="best-products" aria-live="polite"></div>
-    </section>
 
-    <<div id="catalogo" class="category-sections">
-      <section class="section-block category-section" id="gpu">
-        <div class="section-heading"><h2><span class="heading-accent cyan"></span>GPU</h2><a href="#gpu">Ver todos <span>›</span></a></div>
-        <div class="mini-grid" data-category="GPU"></div>
-      </section>
-  
-      <section class="section-block category-section" id="motherboard">
-        <div class="section-heading"><h2><span class="heading-accent cyan"></span>Motherboards</h2><a href="#motherboard">Ver todos <span>›</span></a></div>
-        <div class="mini-grid" data-category="Motherboard"></div>
-      </section>
-  
-      <section class="section-block category-section" id="ram">
-        <div class="section-heading"><h2><span class="heading-accent yellow"></span>Memorias RAM</h2><a href="#ram">Ver todos <span>›</span></a></div>
-        <div class="mini-grid" data-category="RAM"></div>
-      </section>
-  
-      <section class="section-block category-section" id="almacenamiento">
-        <div class="section-heading"><h2><span class="heading-accent navy"></span>Almacenamiento</h2><a href="#almacenamiento">Ver todos <span>›</span></a></div>
-        <div class="mini-grid" data-category="almacenamiento"></div>
-      </section>
-  
-      <section class="section-block category-section" id="fuente-de-poder">
-        <div class="section-heading"><h2><span class="heading-accent orange"></span>Fuentes de poder</h2><a href="#fuente-de-poder">Ver todos <span>›</span></a></div>
-        <div class="mini-grid" data-category="fuente de poder"></div>
-      </section>
-  
-      <section class="section-block category-section" id="gabinete">
-        <div class="section-heading"><h2><span class="heading-accent yellow"></span>Gabinetes</h2><a href="#gabinete">Ver todos <span>›</span></a></div>
-        <div class="mini-grid" data-category="gabinete"></div>
-      </section>
-  
-      <section class="section-block category-section" id="refrigeracion">
-        <div class="section-heading"><h2><span class="heading-accent cyan"></span>Refrigeración</h2><a href="#refrigeracion">Ver todos <span>›</span></a></div>
-        <div class="mini-grid" data-category="refrigeracion"></div>
-      </section>
+      <!-- Columna Derecha: Armador de PC Fijo (Sticky Vertical) -->
+      <aside class="builder-column">
+        <section class="pc-builder-section" id="arma-tu-pc">
+          <div class="section-heading">
+            <h2><span class="heading-accent orange"></span>Arma tu PC</h2>
+          </div>
+          <p class="builder-instructions">Arrastra los componentes desde el catálogo hacia las casillas:</p>
+
+          <!-- Visor 3D del Gabinete -->
+          <div id="case-3d-container"></div>
+
+          <!-- Casillas de componentes Drag & Drop -->
+          <div class="builder-slots">
+            <div class="drop-slot" data-slot="GPU">
+              <span class="slot-label">▣ GPU</span>
+              <div class="slot-content">Arrastra GPU aquí</div>
+            </div>
+            <div class="drop-slot" data-slot="Motherboard">
+              <span class="slot-label">▦ Motherboard</span>
+              <div class="slot-content">Arrastra Motherboard aquí</div>
+            </div>
+            <div class="drop-slot" data-slot="RAM">
+              <span class="slot-label">▤ RAM</span>
+              <div class="slot-content">Arrastra RAM aquí</div>
+            </div>
+            <div class="drop-slot" data-slot="fuente de poder">
+              <span class="slot-label">ϟ Fuente de Poder</span>
+              <div class="slot-content">Arrastra Fuente aquí</div>
+            </div>
+            <div class="drop-slot" data-slot="almacenamiento">
+              <span class="slot-label">💾 Almacenamiento</span>
+              <div class="slot-content">Arrastra Disco aquí</div>
+            </div>
+            <div class="drop-slot" data-slot="gabinete">
+              <span class="slot-label">📦 Gabinete</span>
+              <div class="slot-content">Arrastra Gabinete aquí</div>
+            </div>
+            <div class="drop-slot" data-slot="refrigeracion">
+              <span class="slot-label">❄ Refrigeración</span>
+              <div class="slot-content">Arrastra Cooler aquí</div>
+            </div>
+          </div>
+
+          <!-- Resumen y Análisis de Rendimiento -->
+          <div class="builder-summary">
+            <div id="builder-details">
+              <p class="empty-summary">Arrastra componentes hacia las casillas superiores para analizar las capacidades del equipo.</p>
+            </div>
+            <div class="summary-total">
+              <span>Total estimado:</span>
+              <strong id="builder-total-price">$0.00 MXN</strong>
+            </div>
+            <button class="primary-button" id="add-builder-to-cart" type="button" style="width: 100%; margin-top: 10px; justify-content: center;">
+              🛒 Agregar todo al carrito
+            </button>
+          </div>
+        </section>
+      </aside>
+
     </div>
-
-    <p class="status-message" id="status-message" role="status"></p>
   </main>
 
   <footer class="site-footer">
     <a class="brand footer-brand" href="#"><span class="brand-mark">T</span><span>tecnoli</span></a>
     <p>© <span id="year"></span> Tecnoli. Tecnología para tu setup.</p>
-    <p>Catálogo de demostración · Precios en MXN</p>
+    <p>Catálogo conectado a Supabase · Precios en MXN</p>
   </footer>
 
   <dialog id="cart-dialog" class="cart-dialog">
@@ -127,6 +194,5 @@
     <div class="dialog-total"><strong>Total</strong><strong id="dialog-total">$0.00</strong></div>
     <p class="cart-note">Demo de interfaz: el proceso de pago se conectará al backend posteriormente.</p>
   </dialog>
-
 </body>
 </html>
