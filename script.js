@@ -238,12 +238,11 @@ async function loadProducts() {
 // 7. Manejo del Carrito de Compras
 // ------------------------------------------------------------------
 function addToCart(productId) {
-  const product = products.find(p => String(p.id_componente) === String(productId));
+  productId = String(productId);
+  const product = products.find(p => String(p.id_componente) === productId);
   if (!product) return;
-  
-  const current = cart.get(productId);
-  const currentQty = current?.quantity || 0;
 
+  const currentQty = cart.get(productId)?.quantity || 0;
   if (currentQty + 1 > product.stock) {
     alert(`Solo hay ${product.stock} unidades disponibles en stock de este componente.`);
     return;
@@ -251,6 +250,60 @@ function addToCart(productId) {
 
   cart.set(productId, { product, quantity: currentQty + 1 });
   updateCartUI();
+}
+
+function changeQuantity(productId, delta) {
+  const item = cart.get(productId);
+  if (!item) return;
+
+  const newQty = item.quantity + delta;
+  if (newQty <= 0) {
+    cart.delete(productId);
+  } else if (newQty > item.product.stock) {
+    alert(`Solo hay ${item.product.stock} unidades disponibles en stock de este componente.`);
+    return;
+  } else {
+    item.quantity = newQty;
+  }
+  updateCartUI();
+}
+
+function removeFromCart(productId) {
+  cart.delete(productId);
+  updateCartUI();
+}
+
+function updateCartUI() {
+  const entries = [...cart.entries()];
+  const quantity = entries.reduce((sum, [, item]) => sum + item.quantity, 0);
+  const total = entries.reduce((sum, [, item]) => sum + Number(item.product.precio) * item.quantity, 0);
+
+  document.querySelector('#cart-count').textContent = quantity;
+  document.querySelector('#cart-total').textContent = money.format(total);
+  document.querySelector('#dialog-total').textContent = money.format(total);
+
+  document.querySelector('#cart-items').innerHTML = entries.length
+    ? entries.map(([id, { product, quantity: qty }]) => {
+        const displayName = `${product.marca} ${product.modelo}`;
+        const safeId = escapeHTML(id);
+        return `
+          <div class="cart-line">
+            <div class="cart-line-info">
+              <span>${escapeHTML(displayName)}</span>
+              <small>${money.format(Number(product.precio))} c/u</small>
+              <div class="qty-controls">
+                <button type="button" data-qty="-1" data-id="${safeId}" aria-label="Quitar una unidad">−</button>
+                <span>${qty}</span>
+                <button type="button" data-qty="1" data-id="${safeId}" aria-label="Agregar una unidad">+</button>
+              </div>
+            </div>
+            <div class="cart-line-side">
+              <strong>${money.format(Number(product.precio) * qty)}</strong>
+              <button type="button" class="remove-button" data-remove="${safeId}">Eliminar</button>
+            </div>
+          </div>`;
+      }).join('')
+    : `<p class="empty-cart">Tu carrito está vacío.</p>`;
 }
 
 function updateCartUI() {
@@ -471,4 +524,14 @@ if (yearEl) yearEl.textContent = new Date().getFullYear();
 window.addEventListener('DOMContentLoaded', () => {
   init3DCase('case-3d-container');
   loadProducts();
+});
+document.addEventListener('click', event => {
+  const addButton = event.target.closest('[data-add]');
+  if (addButton) return addToCart(addButton.dataset.add);
+
+  const qtyButton = event.target.closest('[data-qty]');
+  if (qtyButton) return changeQuantity(qtyButton.dataset.id, Number(qtyButton.dataset.qty));
+
+  const removeButton = event.target.closest('[data-remove]');
+  if (removeButton) return removeFromCart(removeButton.dataset.remove);
 });
