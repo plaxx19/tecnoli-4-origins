@@ -1,23 +1,132 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <title>Home</title>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width" />
-    <!--
-      Need a visual blank slate?
-      Remove all code in `styles.css`!
-    -->
-    <link rel="stylesheet" href="styles.css" />
-    <script type="module" src="script.js"></script>
-  </head>
-  <body>
-    <nav>
-      <a href="/" aria-current="page">Home</a>
-      <a href="/page2.html">Other page</a>
-    </nav>
-    <main>
-      <h1>Home page</h1>
-    </main>
-  </body>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0869e8" />
+  <meta name="description" content="Tecnoli: componentes, periféricos y tecnología para tu setup." />
+  <title>Tecnoli | Tecnología para tu setup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css" />
+  <script type="module" src="./script.js"></script>
+</head>
+<body>
+  <div class="announcement">
+    <span aria-hidden="true">▣</span>
+    Envío gratis en compras seleccionadas
+  </div>
+
+  <header class="site-header">
+    <a class="brand" href="#" aria-label="Tecnoli, inicio">
+      <span class="brand-mark">T</span><span>tecnoli</span>
+    </a>
+
+    <form class="search" id="search-form" role="search">
+      <button aria-label="Buscar" type="submit">⌕</button>
+      <input id="search-input" type="search" placeholder="Buscar productos..." autocomplete="off" />
+    </form>
+
+    <div class="header-actions">
+      <button class="account-action" type="button" aria-label="Mi cuenta">
+        <span class="action-icon">♙</span>
+        <span><strong>Mi cuenta</strong><small>Iniciar sesión</small></span>
+      </button>
+      <button class="cart-action" id="cart-button" type="button" aria-label="Ver carrito">
+        <span class="action-icon">🛒</span>
+        <span><strong>Carrito <b class="cart-count" id="cart-count">0</b></strong><small id="cart-total">$0.00</small></span>
+      </button>
+    </div>
+  </header>
+
+  <nav class="category-nav" aria-label="Navegación principal">
+    <a class="nav-link active" href="#inicio"><span>⌂</span> Inicio</a>
+    <a class="nav-link" href="#gpu">▣ <span>GPU</span></a>
+    <a class="nav-link" href="#motherboard">▦ <span>Motherboard</span></a>
+    <a class="nav-link" href="#ram">▤ <span>RAM</span></a>
+    <a class="nav-link" href="#almacenamiento">💾 <span>Almacenamiento</span></a>
+    <a class="nav-link" href="#fuente-de-poder">ϟ <span>Fuente de poder</span></a>
+    <a class="nav-link" href="#gabinete">📦 <span>Gabinete</span></a>
+    <a class="nav-link" href="#refrigeracion">❄ <span>Refrigeración</span></a>
+  </nav>
+
+  <main id="inicio" class="page-shell">
+    <section class="hero" aria-label="Promoción destacada">
+      <div class="hero-copy">
+        <p class="eyebrow">TECNOLOGÍA PARA TU ESPACIO</p>
+        <h1>Todo para tu setup gamer</h1>
+        <h2>Encuentra tus componentes ideales</h2>
+        <p>Rendimiento, calidad y el mejor precio en TecnoLi.</p>
+        <a class="primary-button" href="#catalogo">Ver catálogo <span>→</span></a>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="hero-glow"></div>
+        <img src="https://images.unsplash.com/photo-1593640408182-31c70c8268f5?auto=format&fit=crop&w=1100&q=85" alt="" />
+      </div>
+      <div class="hero-dots" aria-label="Diapositiva 1 de 3"><i class="selected"></i><i></i><i></i></div>
+    </section>
+
+    <section class="section-block best-section" id="mas-vendidos">
+      <div class="section-heading">
+        <h2><span class="heading-accent orange"></span>Los 5 más vendidos</h2>
+        <a href="#catalogo">Ver todos <span>›</span></a>
+      </div>
+      <div class="best-grid" id="best-products" aria-live="polite"></div>
+    </section>
+
+    <<div id="catalogo" class="category-sections">
+      <section class="section-block category-section" id="gpu">
+        <div class="section-heading"><h2><span class="heading-accent cyan"></span>GPU</h2><a href="#gpu">Ver todos <span>›</span></a></div>
+        <div class="mini-grid" data-category="GPU"></div>
+      </section>
+  
+      <section class="section-block category-section" id="motherboard">
+        <div class="section-heading"><h2><span class="heading-accent cyan"></span>Motherboards</h2><a href="#motherboard">Ver todos <span>›</span></a></div>
+        <div class="mini-grid" data-category="Motherboard"></div>
+      </section>
+  
+      <section class="section-block category-section" id="ram">
+        <div class="section-heading"><h2><span class="heading-accent yellow"></span>Memorias RAM</h2><a href="#ram">Ver todos <span>›</span></a></div>
+        <div class="mini-grid" data-category="RAM"></div>
+      </section>
+  
+      <section class="section-block category-section" id="almacenamiento">
+        <div class="section-heading"><h2><span class="heading-accent navy"></span>Almacenamiento</h2><a href="#almacenamiento">Ver todos <span>›</span></a></div>
+        <div class="mini-grid" data-category="almacenamiento"></div>
+      </section>
+  
+      <section class="section-block category-section" id="fuente-de-poder">
+        <div class="section-heading"><h2><span class="heading-accent orange"></span>Fuentes de poder</h2><a href="#fuente-de-poder">Ver todos <span>›</span></a></div>
+        <div class="mini-grid" data-category="fuente de poder"></div>
+      </section>
+  
+      <section class="section-block category-section" id="gabinete">
+        <div class="section-heading"><h2><span class="heading-accent yellow"></span>Gabinetes</h2><a href="#gabinete">Ver todos <span>›</span></a></div>
+        <div class="mini-grid" data-category="gabinete"></div>
+      </section>
+  
+      <section class="section-block category-section" id="refrigeracion">
+        <div class="section-heading"><h2><span class="heading-accent cyan"></span>Refrigeración</h2><a href="#refrigeracion">Ver todos <span>›</span></a></div>
+        <div class="mini-grid" data-category="refrigeracion"></div>
+      </section>
+    </div>
+
+    <p class="status-message" id="status-message" role="status"></p>
+  </main>
+
+  <footer class="site-footer">
+    <a class="brand footer-brand" href="#"><span class="brand-mark">T</span><span>tecnoli</span></a>
+    <p>© <span id="year"></span> Tecnoli. Tecnología para tu setup.</p>
+    <p>Catálogo de demostración · Precios en MXN</p>
+  </footer>
+
+  <dialog id="cart-dialog" class="cart-dialog">
+    <div class="dialog-heading"><h2>Tu carrito</h2><button id="close-cart" aria-label="Cerrar">×</button></div>
+    <div id="cart-items" class="cart-items"></div>
+    <div class="dialog-total"><strong>Total</strong><strong id="dialog-total">$0.00</strong></div>
+    <p class="cart-note">Demo de interfaz: el proceso de pago se conectará al backend posteriormente.</p>
+  </dialog>
+
+</body>
 </html>
