@@ -29,6 +29,10 @@
     </form>
 
     <div class="header-actions">
+      <button class="account-action" id="open-sales-btn" type="button" aria-label="Ver ventas">
+        <span class="action-icon">📋</span>
+        <span><strong>Ventas</strong><small>Historial</small></span>
+      </button>
       <button class="account-action" type="button" aria-label="Mi cuenta">
         <span class="action-icon">♙</span>
         <span><strong>Mi cuenta</strong><small>Iniciar sesión</small></span>
@@ -39,6 +43,17 @@
       </button>
     </div>
   </header>
+
+  <nav class="category-nav" aria-label="Navegación principal">
+    <a class="nav-link active" href="#inicio"><span>⌂</span> Inicio</a>
+    <a class="nav-link" href="#gpu">▣ <span>GPU</span></a>
+    <a class="nav-link" href="#motherboard">▦ <span>Motherboard</span></a>
+    <a class="nav-link" href="#ram">▤ <span>RAM</span></a>
+    <a class="nav-link" href="#almacenamiento">💾 <span>Almacenamiento</span></a>
+    <a class="nav-link" href="#fuente-de-poder">ϟ <span>Fuente de poder</span></a>
+    <a class="nav-link" href="#gabinete">📦 <span>Gabinete</span></a>
+    <a class="nav-link" href="#refrigeracion">❄ <span>Refrigeración</span></a>
+  </nav>
 
   <main id="inicio" class="page-shell">
     <section class="hero" aria-label="Promoción destacada">
@@ -177,11 +192,91 @@
     <p>Catálogo conectado a Supabase · Precios en MXN</p>
   </footer>
 
+  <!-- Modal Carrito y Registro de Venta -->
   <dialog id="cart-dialog" class="cart-dialog">
-    <div class="dialog-heading"><h2>Tu carrito</h2><button id="close-cart" aria-label="Cerrar">×</button></div>
+    <div class="dialog-heading">
+      <h2>Tu carrito</h2>
+      <button id="close-cart" type="button" aria-label="Cerrar">×</button>
+    </div>
+
     <div id="cart-items" class="cart-items"></div>
-    <div class="dialog-total"><strong>Total</strong><strong id="dialog-total">$0.00</strong></div>
-    <p class="cart-note">Demo de interfaz: el proceso de pago se conectará al backend posteriormente.</p>
+
+    <div class="dialog-total">
+      <strong>Total</strong>
+      <strong id="dialog-total">$0.00</strong>
+    </div>
+
+    <form id="checkout-form" class="checkout-form" style="margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px; display: flex; flex-direction: column; gap: 10px;">
+      <h3 style="margin: 0; font-size: 14px; color: #0f172a;">Datos de Registro de Venta</h3>
+
+      <label style="display: flex; flex-direction: column; font-size: 12px; gap: 4px;">
+        <span>Correo del cliente (o nuevo registro) *</span>
+        <input type="email" id="sale-email" required placeholder="cliente@ejemplo.com" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;" />
+      </label>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+        <label style="display: flex; flex-direction: column; font-size: 12px; gap: 4px;">
+          <span>Nombre completo *</span>
+          <input type="text" id="sale-name" required placeholder="Juan Pérez" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;" />
+        </label>
+
+        <label style="display: flex; flex-direction: column; font-size: 12px; gap: 4px;">
+          <span>Teléfono</span>
+          <input type="tel" id="sale-phone" placeholder="3312345678" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;" />
+        </label>
+      </div>
+
+      <label style="display: flex; flex-direction: column; font-size: 12px; gap: 4px;">
+        <span>Dirección de entrega</span>
+        <input type="text" id="sale-address" placeholder="Av. Vallarta 1234, Guadalajara" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;" />
+      </label>
+
+      <label style="display: flex; flex-direction: column; font-size: 12px; gap: 4px;">
+        <span>Estado de la venta *</span>
+        <select id="sale-status" required style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;">
+          <option value="PAGADA" selected>PAGADA</option>
+          <option value="PENDIENTE">PENDIENTE</option>
+        </select>
+      </label>
+
+      <p id="sale-feedback" style="margin: 0; font-size: 12px; font-weight: 600;"></p>
+
+      <button type="submit" id="register-sale-btn" class="primary-button" style="width: 100%; justify-content: center; margin-top: 4px;">
+        ✓ Registrar Venta
+      </button>
+    </form>
+  </dialog>
+
+  <!-- Modal Módulo de Ventas -->
+  <dialog id="sales-dialog" class="cart-dialog" style="width: min(860px, 95vw); max-width: 860px;">
+    <div class="dialog-heading">
+      <h2>Historial y Detalle de Ventas</h2>
+      <button id="close-sales" type="button" aria-label="Cerrar">×</button>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
+      <input type="search" id="sales-search" placeholder="Buscar por folio (VTA-...) o cliente..." style="flex: 1; min-width: 200px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px;" />
+      
+      <select id="sales-filter-status" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; background: #fff;">
+        <option value="TODOS">Todos los estados</option>
+        <option value="PAGADA">PAGADA</option>
+        <option value="PENDIENTE">PENDIENTE</option>
+        <option value="CANCELADA">CANCELADA</option>
+      </select>
+
+      <button type="button" id="refresh-sales-btn" class="primary-button" style="padding: 8px 14px; font-size: 12px;">
+        ↻ Actualizar
+      </button>
+    </div>
+
+    <div id="sales-summary-bar" style="display: flex; justify-content: space-between; background: #f8fafc; padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 12px; margin-bottom: 12px;">
+      <span>Total de ventas mostradas: <strong id="sales-count">0</strong></span>
+      <span>Monto acumulado: <strong id="sales-grand-total" style="color: #0869e8;">$0.00 MXN</strong></span>
+    </div>
+
+    <div id="sales-list" style="max-height: 440px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+      <p class="empty-cart">Cargando ventas...</p>
+    </div>
   </dialog>
 </body>
 </html>
