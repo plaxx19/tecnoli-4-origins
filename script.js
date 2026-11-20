@@ -23,22 +23,45 @@ const money = new Intl.NumberFormat('es-MX', {
   maximumFractionDigits: 2
 });
 
+const LOW_STOCK_LIMIT = 3;
+
+// Tipos de componente: "value" es lo que se guarda en la columna "tipo" de Supabase.
+// Si tu base usa otros nombres (por ejemplo "Procesador"), cambia solo el "value".
+const COMPONENT_TYPES = [
+  { value: 'CPU',             label: 'Procesador (CPU)',     short: 'CPU' },
+  { value: 'GPU',             label: 'Tarjeta gráfica (GPU)', short: 'GPU' },
+  { value: 'Motherboard',     label: 'Motherboard',          short: 'Motherboard' },
+  { value: 'RAM',             label: 'Memoria RAM',          short: 'RAM' },
+  { value: 'fuente de poder', label: 'Fuente de poder',      short: 'Fuente' },
+  { value: 'almacenamiento',  label: 'Almacenamiento',       short: 'Disco' },
+  { value: 'gabinete',        label: 'Gabinete',             short: 'Gabinete' },
+  { value: 'refrigeracion',   label: 'Refrigeración',        short: 'Cooler' }
+];
+
+// Sinónimos aceptados al comparar tipos (ya normalizados: sin acentos, minúsculas)
+const TYPE_ALIASES = { procesador: 'cpu', procesadores: 'cpu' };
+
 let products = [];
+let inventory = [];
 let allSales = [];
 const cart = new Map();
 const builderSetup = new Map();
 
-let scene3D, camera3D, renderer3D, caseMesh;
+let scene3D, camera3D, renderer3D, caseMesh, pcGroup;
+let animationId = null;
+let render3DActive = false;
 const installed3DMeshes = new Map();
 
+// pos / size en unidades 3D. "opacity" hace la pieza translúcida (gabinete).
 const SLOT_CONFIG_3D = {
-  'Motherboard':     { pos: [0, 0.1, -0.2],   size: [0.1, 3.0, 3.0], color: 0x10b981 },
-  'GPU':             { pos: [0.3, -0.3, 0.2],  size: [0.8, 0.8, 2.3], color: 0xef4444 },
-  'RAM':             { pos: [0.2, 0.7, -0.4],  size: [0.1, 0.8, 0.2], color: 0xf59e0b },
-  'fuente de poder': { pos: [0, -1.4, 0],      size: [1.6, 0.8, 1.6], color: 0x6366f1 },
-  'almacenamiento':  { pos: [-0.6, -1.1, 1.1], size: [0.6, 0.2, 1.0], color: 0x06b6d4 },
-  'gabinete':        { pos: [0, 0, 0],         size: [2.1, 4.1, 4.1], color: 0x3b82f6 },
-  'refrigeracion':   { pos: [0, 1.5, -0.2],    size: [0.8, 0.5, 2.5], color: 0x38bdf8 }
+  'Motherboard':     { pos: [0, 0.1, -0.2],    size: [0.1, 3.0, 3.0],  color: 0x10b981 },
+  'CPU':             { pos: [0.11, 0.5, 0.3],  size: [0.12, 0.5, 0.5], color: 0xa855f7 },
+  'GPU':             { pos: [0.3, -0.3, 0.2],  size: [0.8, 0.8, 2.3],  color: 0xef4444 },
+  'RAM':             { pos: [0.2, 0.7, -0.4],  size: [0.1, 0.8, 0.2],  color: 0xf59e0b },
+  'fuente de poder': { pos: [0, -1.4, 0],      size: [1.6, 0.8, 1.6],  color: 0x6366f1 },
+  'almacenamiento':  { pos: [-0.6, -1.1, 1.1], size: [0.6, 0.2, 1.0],  color: 0x06b6d4 },
+  'gabinete':        { pos: [0, 0, 0],         size: [2.1, 4.1, 4.1],  color: 0x3b82f6, opacity: 0.15 },
+  'refrigeracion':   { pos: [0, 1.5, -0.2],    size: [0.8, 0.5, 2.5],  color: 0x38bdf8 }
 };
 
 // ------------------------------------------------------------------
@@ -60,6 +83,16 @@ function normalizeText(text = '') {
     .replace(/[\u0300-\u036f]/g, '')
     .trim()
     .toLowerCase();
+}
+
+function canonicalType(tipo = '') {
+  const normalized = normalizeText(tipo);
+  return TYPE_ALIASES[normalized] || normalized;
+}
+
+function typeLabel(tipo) {
+  const found = COMPONENT_TYPES.find(t => canonicalType(t.value) === canonicalType(tipo));
+  return found ? found.label : String(tipo || 'Sin tipo');
 }
 
 function formatDate(isoString) {
@@ -84,6 +117,12 @@ function badgeClass(badge) {
   return 'yellow';
 }
 
+function stockTag(product) {
+  const stock = Number(product.stock) || 0;
+  const level = stock <= LOW_STOCK_LIMIT ? ' low' : '';
+  return `<small class="stock-tag${level}">Stock: ${stock}</small>`;
+}
+
 // ------------------------------------------------------------------
 // 4. Renderizado 3D (Three.js)
 // ------------------------------------------------------------------
@@ -94,67 +133,133 @@ function init3DCase(containerId) {
   const width = container.clientWidth || 340;
   const height = container.clientHeight || 220;
 
+  try {
+    renderer3D = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  } catch (err) {
+    console.error('WebGL no disponible:', err);
+    container.innerHTML = '<p class="empty-cart">Tu navegador no pudo iniciar el visor 3D.</p>';
+    return;
+  }
+
   scene3D = new THREE.Scene();
   camera3D = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-  renderer3D = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  
+
+  renderer3D.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer3D.setSize(width, height);
   container.innerHTML = '';
   container.appendChild(renderer3D.domElement);
 
   scene3D.add(new THREE.AmbientLight(0xffffff, 0.9));
-  const sun = new THREE.DirectionalLight(0x0874ed, 1.8);
+  const sun = new THREE.DirectionalLight(0xffffff, 1.6);
   sun.position.set(5, 10, 7);
   scene3D.add(sun);
 
-  const caseGeo = new THREE.BoxGeometry(2.2, 4.2, 4.2);
-  const caseMat = new THREE.MeshStandardMaterial({ 
-    color: 0x0874ed, 
-    wireframe: true, 
-    transparent: true, 
-    opacity: 0.4 
-  });
-  caseMesh = new THREE.Mesh(caseGeo, caseMat);
-  scene3D.add(caseMesh);
+  // Todo (gabinete y piezas) cuelga de un grupo para que rote junto
+  pcGroup = new THREE.Group();
+  scene3D.add(pcGroup);
+
+  caseMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(2.2, 4.2, 4.2),
+    new THREE.MeshStandardMaterial({
+      color: 0x0874ed,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.4
+    })
+  );
+  pcGroup.add(caseMesh);
 
   camera3D.position.set(5, 3, 6);
   camera3D.lookAt(0, 0, 0);
 
-  function animate() {
-    requestAnimationFrame(animate);
-    if (caseMesh) caseMesh.rotation.y += 0.003;
-    installed3DMeshes.forEach(mesh => {
-      mesh.rotation.y += 0.003;
-    });
-    renderer3D.render(scene3D, camera3D);
-  }
-  animate();
+  // Ajusta el visor cuando cambia el tamaño del contenedor
+  new ResizeObserver(() => resize3D(container)).observe(container);
+
+  // Solo anima mientras el visor está en pantalla
+  new IntersectionObserver(entries => {
+    setRender3D(entries[0].isIntersecting);
+  }).observe(container);
+
+  window.addEventListener('pagehide', () => {
+    setRender3D(false);
+    renderer3D.dispose();
+  });
+
+  setRender3D(true);
 }
 
-function update3DPiece(slotType, isInstalled) {
-  if (!scene3D) return;
+function resize3D(container) {
+  if (!renderer3D || !camera3D) return;
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  if (!width || !height) return;
+
+  renderer3D.setSize(width, height);
+  camera3D.aspect = width / height;
+  camera3D.updateProjectionMatrix();
+}
+
+function setRender3D(active) {
+  render3DActive = active;
+  if (active && animationId === null) loop3D();
+}
+
+function loop3D() {
+  if (!render3DActive) {
+    animationId = null;
+    return;
+  }
+  animationId = requestAnimationFrame(loop3D);
+  if (pcGroup) pcGroup.rotation.y += 0.003;
+  renderer3D.render(scene3D, camera3D);
+}
+
+function disposeMesh(mesh) {
+  if (mesh.geometry) mesh.geometry.dispose();
+  if (Array.isArray(mesh.material)) {
+    mesh.material.forEach(material => material.dispose());
+  } else if (mesh.material) {
+    mesh.material.dispose();
+  }
+}
+
+// product = objeto del componente instalado, o null para retirar la pieza
+function update3DPiece(slotType, product) {
+  if (!pcGroup) return;
 
   const config = SLOT_CONFIG_3D[slotType];
   if (!config) return;
 
-  if (installed3DMeshes.has(slotType)) {
-    scene3D.remove(installed3DMeshes.get(slotType));
+  const existing = installed3DMeshes.get(slotType);
+  const productId = product ? String(product.id_componente) : null;
+
+  // Si ya está montada la misma pieza no se vuelve a crear
+  if (existing && existing.userData.productId === productId) return;
+
+  if (existing) {
+    pcGroup.remove(existing);
+    disposeMesh(existing);
     installed3DMeshes.delete(slotType);
   }
 
-  if (isInstalled) {
-    const geo = new THREE.BoxGeometry(...config.size);
-    const mat = new THREE.MeshStandardMaterial({ 
-      color: config.color, 
-      roughness: 0.3,
-      metalness: 0.7 
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(...config.pos);
+  if (!product) return;
 
-    scene3D.add(mesh);
-    installed3DMeshes.set(slotType, mesh);
-  }
+  const isTranslucent = config.opacity !== undefined;
+  const geometry = new THREE.BoxGeometry(...config.size);
+  const material = new THREE.MeshStandardMaterial({
+    color: config.color,
+    roughness: 0.3,
+    metalness: 0.7,
+    transparent: isTranslucent,
+    opacity: isTranslucent ? config.opacity : 1,
+    depthWrite: !isTranslucent
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(...config.pos);
+  mesh.userData.productId = productId;
+
+  pcGroup.add(mesh);
+  installed3DMeshes.set(slotType, mesh);
 }
 
 // ------------------------------------------------------------------
@@ -171,6 +276,7 @@ function renderBestSeller(product) {
       ${productImage(product)}
       <h3 class="product-name">${escapeHTML(displayName)}</h3>
       <p class="product-price">${money.format(Number(product.precio) || 0)} MXN</p>
+      ${stockTag(product)}
       <button class="add-button" data-add="${escapeHTML(product.id_componente)}" type="button">🛒 &nbsp; Agregar</button>
     </article>`;
 }
@@ -182,6 +288,7 @@ function renderMiniProduct(product) {
       ${productImage(product)}
       <h3 class="product-name">${escapeHTML(displayName)}</h3>
       <p class="product-price">${money.format(Number(product.precio) || 0)} MXN</p>
+      ${stockTag(product)}
       <button class="add-button mini-add" data-add="${escapeHTML(product.id_componente)}" type="button">Agregar</button>
     </article>`;
 }
@@ -198,10 +305,8 @@ function renderProducts(list) {
     : `<p class="empty-cart">No hay componentes disponibles.</p>`;
 
   document.querySelectorAll('.mini-grid').forEach(grid => {
-    const rawCategory = grid.dataset.category;
-    const categoryTarget = normalizeText(rawCategory);
-
-    const categoryProducts = list.filter(p => normalizeText(p.tipo) === categoryTarget).slice(0, 3);
+    const categoryTarget = canonicalType(grid.dataset.category);
+    const categoryProducts = list.filter(p => canonicalType(p.tipo) === categoryTarget).slice(0, 3);
 
     grid.innerHTML = categoryProducts.length
       ? categoryProducts.map(renderMiniProduct).join('')
@@ -279,7 +384,16 @@ function removeFromCart(productId) {
   updateCartUI();
 }
 
-window.removeFromCart = removeFromCart;
+function deleteFromCart(productId) {
+  cart.delete(String(productId));
+  updateCartUI();
+}
+
+function handleCartAction(action, productId) {
+  if (action === 'inc') addToCart(productId);
+  else if (action === 'dec') removeFromCart(productId);
+  else if (action === 'remove') deleteFromCart(productId);
+}
 
 function updateCartUI() {
   const entries = [...cart.values()];
@@ -299,15 +413,21 @@ function updateCartUI() {
     itemsEl.innerHTML = entries.length
       ? entries.map(({ product, quantity: qty }) => {
           const displayName = `${product.marca} ${product.modelo}`;
+          const id = escapeHTML(product.id_componente);
           return `
-            <div class="cart-line" style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-              <span>
-                ${escapeHTML(displayName)}
-                <small style="display:block;">Cantidad: ${qty} × ${money.format(product.precio)}</small>
-              </span>
-              <div style="display:flex; align-items:center; gap:8px;">
+            <div class="cart-line">
+              <div class="cart-line-info">
+                <strong>${escapeHTML(displayName)}</strong>
+                <small>${qty} × ${money.format(Number(product.precio))}</small>
+                <div class="qty-controls">
+                  <button type="button" data-cart-action="dec" data-id="${id}" aria-label="Quitar una unidad">−</button>
+                  <span>${qty}</span>
+                  <button type="button" data-cart-action="inc" data-id="${id}" aria-label="Agregar una unidad">+</button>
+                </div>
+              </div>
+              <div class="cart-line-side">
                 <strong>${money.format(Number(product.precio) * qty)}</strong>
-                <button type="button" onclick="removeFromCart('${product.id_componente}')" style="background:#fee2e2; color:#b91c1c; border:0; border-radius:4px; padding:2px 6px; cursor:pointer; font-weight:bold;">−</button>
+                <button type="button" class="remove-button" data-cart-action="remove" data-id="${id}">Eliminar</button>
               </div>
             </div>`;
         }).join('')
@@ -559,18 +679,19 @@ function renderSalesList() {
       return `
         <li style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #e2e8f0; font-size:12px;">
           <span>
-            <strong>${det.cantidad}x</strong> ${escapeHTML(comp.marca || '')} ${escapeHTML(comp.modelo || 'Componente')}
+            <strong>${escapeHTML(det.cantidad)}x</strong> ${escapeHTML(comp.marca || '')} ${escapeHTML(comp.modelo || 'Componente')}
             ${seriesTag}
           </span>
           <span>${money.format(subtotal)}</span>
         </li>`;
     }).join('');
 
+    const saleId = escapeHTML(sale.id_venta);
     const actionButtons = sale.estado === 'PENDIENTE'
       ? `
         <div style="display:flex; gap:6px; margin-top:8px;">
-          <button type="button" onclick="updateSaleStatus(${sale.id_venta}, 'PAGADA')" style="background:#16a34a; color:#fff; border:0; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer; font-weight:600;">✓ Marcar Pagada</button>
-          <button type="button" onclick="updateSaleStatus(${sale.id_venta}, 'CANCELADA')" style="background:#dc2626; color:#fff; border:0; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer; font-weight:600;">✕ Cancelar</button>
+          <button type="button" data-sale-id="${saleId}" data-sale-status="PAGADA" style="background:#16a34a; color:#fff; border:0; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer; font-weight:600;">✓ Marcar Pagada</button>
+          <button type="button" data-sale-id="${saleId}" data-sale-status="CANCELADA" style="background:#dc2626; color:#fff; border:0; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer; font-weight:600;">✕ Cancelar</button>
         </div>`
       : '';
 
@@ -606,6 +727,8 @@ function renderSalesList() {
 }
 
 async function updateSaleStatus(idVenta, nuevoEstado) {
+  if (nuevoEstado === 'CANCELADA' && !confirm('¿Seguro que deseas cancelar esta venta?')) return;
+
   try {
     const { error } = await supabase
       .from('ventas')
@@ -620,14 +743,233 @@ async function updateSaleStatus(idVenta, nuevoEstado) {
   }
 }
 
-window.updateSaleStatus = updateSaleStatus;
+// ------------------------------------------------------------------
+// 9. Inventario: stock visible/editable y alta de productos nuevos
+// ------------------------------------------------------------------
+function populateTypeSelects() {
+  const options = COMPONENT_TYPES
+    .map(t => `<option value="${escapeHTML(t.value)}">${escapeHTML(t.label)}</option>`)
+    .join('');
+
+  const formSelect = document.querySelector('#product-type');
+  if (formSelect) formSelect.innerHTML = options;
+
+  const filterSelect = document.querySelector('#inventory-filter-type');
+  if (filterSelect) filterSelect.innerHTML = `<option value="TODOS">Todos los tipos</option>${options}`;
+}
+
+function setFeedback(selector, message, kind = '') {
+  const el = document.querySelector(selector);
+  if (!el) return;
+  el.textContent = message;
+  el.className = `form-feedback wide${kind ? ' ' + kind : ''}`;
+}
+
+function setInventoryFeedback(message, kind = '') {
+  const el = document.querySelector('#inventory-feedback');
+  if (!el) return;
+  el.textContent = message;
+  el.className = `form-feedback${kind ? ' ' + kind : ''}`;
+}
+
+async function loadInventory() {
+  const body = document.querySelector('#inventory-body');
+  if (body) body.innerHTML = '<tr><td colspan="5" class="empty-cart">Consultando inventario...</td></tr>';
+
+  try {
+    const { data, error } = await supabase
+      .from('componentes')
+      .select('*')
+      .order('tipo')
+      .order('marca');
+
+    if (error) throw error;
+
+    inventory = data || [];
+    renderInventory();
+  } catch (err) {
+    console.error('Error al cargar inventario:', err);
+    if (body) {
+      body.innerHTML = `<tr><td colspan="5" class="empty-cart" style="color:#dc2626;">Error al cargar el inventario: ${escapeHTML(err.message)}</td></tr>`;
+    }
+  }
+}
+
+function renderInventory() {
+  const body = document.querySelector('#inventory-body');
+  if (!body) return;
+
+  const query = normalizeText(document.querySelector('#inventory-search')?.value || '');
+  const typeFilter = document.querySelector('#inventory-filter-type')?.value || 'TODOS';
+  const onlyLow = document.querySelector('#inventory-only-low')?.checked || false;
+
+  const filtered = inventory.filter(item => {
+    const matchesType = typeFilter === 'TODOS' || canonicalType(item.tipo) === canonicalType(typeFilter);
+    const haystack = normalizeText(`${item.marca} ${item.modelo} ${item.tipo}`);
+    const matchesQuery = !query || haystack.includes(query);
+    const matchesLow = !onlyLow || (Number(item.stock) || 0) <= LOW_STOCK_LIMIT;
+    return matchesType && matchesQuery && matchesLow;
+  });
+
+  const units = filtered.reduce((sum, item) => sum + (Number(item.stock) || 0), 0);
+  const lowCount = filtered.filter(item => (Number(item.stock) || 0) <= LOW_STOCK_LIMIT).length;
+
+  const countEl = document.querySelector('#inventory-count');
+  const unitsEl = document.querySelector('#inventory-units');
+  const lowEl = document.querySelector('#inventory-low');
+  if (countEl) countEl.textContent = filtered.length;
+  if (unitsEl) unitsEl.textContent = units;
+  if (lowEl) lowEl.textContent = lowCount;
+
+  if (filtered.length === 0) {
+    body.innerHTML = '<tr><td colspan="5" class="empty-cart">No hay componentes con los filtros actuales.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = filtered.map(item => {
+    const id = escapeHTML(item.id_componente);
+    const stock = Number(item.stock) || 0;
+    const rowClass = stock <= LOW_STOCK_LIMIT ? 'low-stock-row' : '';
+
+    return `
+      <tr class="${rowClass}" data-inv-id="${id}">
+        <td>
+          <strong>${escapeHTML(item.marca)}</strong> ${escapeHTML(item.modelo)}
+          <small>${escapeHTML(typeLabel(item.tipo))}${item.controla_serie ? ' · controla serie' : ''}</small>
+        </td>
+        <td><input class="inv-input" type="number" min="0" step="0.01" data-field="precio" value="${Number(item.precio) || 0}" aria-label="Precio" /></td>
+        <td><input class="inv-input" type="number" min="0" step="1" data-field="stock" value="${stock}" aria-label="Stock" /></td>
+        <td class="center"><input type="checkbox" data-field="activo" ${item.activo ? 'checked' : ''} aria-label="Activo" /></td>
+        <td><button type="button" class="small-button" data-inv-save="${id}">Guardar</button></td>
+      </tr>`;
+  }).join('');
+}
+
+async function saveInventoryRow(idComponente, rowEl, buttonEl) {
+  const item = inventory.find(i => String(i.id_componente) === String(idComponente));
+  if (!item || !rowEl) return;
+
+  const precioRaw = rowEl.querySelector('[data-field="precio"]').value.trim();
+  const stockRaw = rowEl.querySelector('[data-field="stock"]').value.trim();
+  const activo = rowEl.querySelector('[data-field="activo"]').checked;
+  const precio = Number(precioRaw);
+  const stock = Number(stockRaw);
+
+  if (precioRaw === '' || stockRaw === '' || !Number.isFinite(precio) || precio < 0 || !Number.isInteger(stock) || stock < 0) {
+    setInventoryFeedback('Revisa los datos: el precio debe ser 0 o mayor y el stock un número entero de 0 o más.', 'error');
+    return;
+  }
+
+  try {
+    if (buttonEl) buttonEl.disabled = true;
+
+    const { data, error } = await supabase
+      .from('componentes')
+      .update({ precio, stock, activo })
+      .eq('id_componente', item.id_componente)
+      .select('id_componente');
+
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error('No se actualizó ningún registro (revisa las políticas RLS de la tabla componentes).');
+    }
+
+    Object.assign(item, { precio, stock, activo });
+    renderInventory();
+    setInventoryFeedback(`✓ ${item.marca} ${item.modelo} actualizado.`, 'ok');
+    await loadProducts();
+  } catch (err) {
+    console.error('Error al actualizar componente:', err);
+    setInventoryFeedback(`No se pudo guardar: ${err.message}`, 'error');
+    if (buttonEl) buttonEl.disabled = false;
+  }
+}
+
+async function handleCreateProduct(event) {
+  event.preventDefault();
+  const submitBtn = document.querySelector('#save-product-btn');
+
+  const tipo = document.querySelector('#product-type').value;
+  const marca = document.querySelector('#product-brand').value.trim();
+  const modelo = document.querySelector('#product-model').value.trim();
+  const precioRaw = document.querySelector('#product-price').value.trim();
+  const stockRaw = document.querySelector('#product-stock').value.trim();
+  const badge = document.querySelector('#product-badge').value.trim();
+  const imageUrl = document.querySelector('#product-image').value.trim();
+  const descripcion = document.querySelector('#product-description').value.trim();
+  const activo = document.querySelector('#product-active').checked;
+  const bestSeller = document.querySelector('#product-best').checked;
+  const controlaSerie = document.querySelector('#product-serial').checked;
+
+  const precio = Number(precioRaw);
+  const stock = Number(stockRaw);
+
+  if (!marca || !modelo) {
+    setFeedback('#product-feedback', 'La marca y el modelo son obligatorios.', 'error');
+    return;
+  }
+  if (precioRaw === '' || !Number.isFinite(precio) || precio < 0) {
+    setFeedback('#product-feedback', 'Ingresa un precio válido (0 o mayor).', 'error');
+    return;
+  }
+  if (stockRaw === '' || !Number.isInteger(stock) || stock < 0) {
+    setFeedback('#product-feedback', 'El stock debe ser un número entero de 0 o más.', 'error');
+    return;
+  }
+
+  const duplicate = inventory.find(item =>
+    canonicalType(item.tipo) === canonicalType(tipo) &&
+    normalizeText(item.marca) === normalizeText(marca) &&
+    normalizeText(item.modelo) === normalizeText(modelo)
+  );
+  if (duplicate && !confirm('Ya existe un componente con la misma marca, modelo y tipo. ¿Quieres registrarlo de todos modos?')) {
+    return;
+  }
+
+  try {
+    submitBtn.disabled = true;
+    setFeedback('#product-feedback', 'Guardando producto...', '');
+
+    const { data, error } = await supabase
+      .from('componentes')
+      .insert({
+        tipo,
+        marca,
+        modelo,
+        precio,
+        stock,
+        badge: badge || null,
+        image_url: imageUrl || null,
+        descripcion: descripcion || null,
+        activo,
+        best_seller: bestSeller,
+        controla_serie: controlaSerie
+      })
+      .select('*')
+      .single();
+
+    if (error) throw error;
+
+    document.querySelector('#product-form').reset();
+    document.querySelector('#product-active').checked = true;
+    setFeedback('#product-feedback', `✓ Producto registrado: ${data.marca} ${data.modelo}`, 'ok');
+
+    await loadInventory();
+    await loadProducts();
+  } catch (err) {
+    console.error('Error al registrar producto:', err);
+    setFeedback('#product-feedback', `Error al registrar: ${err.message || 'Revisa las políticas RLS y los nombres de columnas.'}`, 'error');
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
 
 // ------------------------------------------------------------------
-// 9. Lógica Drag & Drop (Arma tu PC)
+// 10. Lógica Drag & Drop (Arma tu PC)
 // ------------------------------------------------------------------
 function setupDragAndDrop() {
   document.addEventListener('dragstart', event => {
-    const card = event.target.closest('[data-drag-id]');
+    const card = event.target.closest?.('[data-drag-id]');
     if (card) {
       event.dataTransfer.setData('text/plain', card.dataset.dragId);
       event.dataTransfer.effectAllowed = 'copy';
@@ -639,6 +981,7 @@ function setupDragAndDrop() {
   dropSlots.forEach(slot => {
     slot.addEventListener('dragover', event => {
       event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
       slot.classList.add('drag-over');
     });
 
@@ -655,11 +998,9 @@ function setupDragAndDrop() {
 
       if (!product) return;
 
-      const slotType = normalizeText(slot.dataset.slot);
-      const productType = normalizeText(product.tipo);
-
-      if (slotType !== productType) {
-        alert(`Este espacio es exclusivo para componentes del tipo "${slot.dataset.slot}".`);
+      // Regla de compatibilidad: la casilla solo acepta su propio tipo de componente
+      if (canonicalType(slot.dataset.slot) !== canonicalType(product.tipo)) {
+        alert(`Este espacio es exclusivo para componentes del tipo "${typeLabel(slot.dataset.slot)}".`);
         return;
       }
 
@@ -674,8 +1015,6 @@ function removeSlotItem(slotName) {
   updateBuilderUI();
 }
 
-window.removeSlotItem = removeSlotItem;
-
 function updateBuilderUI() {
   let totalPrice = 0;
   const dropSlots = document.querySelectorAll('.drop-slot');
@@ -688,108 +1027,185 @@ function updateBuilderUI() {
     if (product) {
       slot.classList.add('filled');
       totalPrice += Number(product.precio) || 0;
-      update3DPiece(slotName, true);
+      update3DPiece(slotName, product);
 
       contentDiv.innerHTML = `
         <div class="slotted-item">
           <span>
             <strong>${escapeHTML(product.marca)} ${escapeHTML(product.modelo)}</strong>
-            <small style="display:block; color:#647084;">${money.format(product.precio)}</small>
+            <small style="display:block; color:#647084;">${money.format(Number(product.precio) || 0)}</small>
           </span>
-          <button class="remove-slotted" type="button" onclick="removeSlotItem('${slotName}')">✕</button>
+          <button class="remove-slotted" type="button" data-remove-slot="${escapeHTML(slotName)}" aria-label="Quitar componente">✕</button>
         </div>`;
     } else {
       slot.classList.remove('filled');
-      update3DPiece(slotName, false);
-      contentDiv.innerHTML = `Arrastra un(a) ${slotName} aquí`;
+      update3DPiece(slotName, null);
+      const shortName = COMPONENT_TYPES.find(t => t.value === slotName)?.short || slotName;
+      contentDiv.textContent = `Arrastra ${shortName} aquí`;
     }
   });
 
   const totalPriceEl = document.querySelector('#builder-total-price');
   if (totalPriceEl) {
-    totalPriceEl.textContent = money.format(totalPrice);
+    totalPriceEl.textContent = `${money.format(totalPrice)} MXN`;
   }
   analyzePerformance();
 }
 
 // ------------------------------------------------------------------
-// 10. Diagnóstico de Rendimiento
+// 11. Diagnóstico de Rendimiento
 // ------------------------------------------------------------------
+const GPU_HIGH_END = ['5090', '5080', '5070', '4090', '4080', '9070', '7900'];
+const GPU_MID_RANGE = ['4070', '4060', '3070', '3060', '7700', '7600', '9060', '6700'];
+
+// Lee los watts de la fuente: prefiere un número seguido de "W" ("750W");
+// si no existe, usa el primer grupo de 3-4 dígitos del modelo ("RM850x" => 850).
+function getPsuWatts(psu) {
+  if (!psu) return null;
+
+  const text = `${psu.modelo || ''} ${psu.descripcion || ''}`;
+  const explicit = text.match(/(\d{3,4})\s*w\b/i);
+  const fallback = String(psu.modelo || '').match(/\d{3,4}/);
+  const watts = explicit ? Number(explicit[1]) : (fallback ? Number(fallback[0]) : null);
+
+  return watts && watts >= 200 && watts <= 2000 ? watts : null;
+}
+
 function analyzePerformance() {
   const detailsContainer = document.querySelector('#builder-details');
   if (!detailsContainer) return;
-
-  const gpu = builderSetup.get('GPU');
-  const psu = builderSetup.get('fuente de poder');
 
   if (builderSetup.size === 0) {
     detailsContainer.innerHTML = '<p class="empty-summary">Arrastra componentes hacia las casillas superiores para analizar las capacidades del equipo.</p>';
     return;
   }
 
+  const gpu = builderSetup.get('GPU');
+  const cpu = builderSetup.get('CPU');
+  const psu = builderSetup.get('fuente de poder');
+
   let performanceLevel = 'Gama de Entrada / Oficina';
-  let capabilities = [];
+  let recommendedWatts = 0;
+  const capabilities = [];
 
   const gpuName = gpu ? `${gpu.marca} ${gpu.modelo}`.toLowerCase() : '';
+  const isHighEnd = GPU_HIGH_END.some(key => gpuName.includes(key));
+  const isMidRange = !isHighEnd && GPU_MID_RANGE.some(key => gpuName.includes(key));
 
-  if (gpuName.includes('5070') || gpuName.includes('4080') || gpuName.includes('4090') || gpuName.includes('9070')) {
+  if (isHighEnd) {
     performanceLevel = 'Gama Alta / Enthusiast';
+    recommendedWatts = 750;
     capabilities.push('Gaming fluido en 4K Ultra (>90 FPS)');
     capabilities.push('Edición de video 8K y Renderizado 3D pesado');
     capabilities.push('Streaming profesional en simultáneo');
-  } else if (gpuName.includes('4060') || gpuName.includes('7700') || gpuName.includes('3060')) {
+  } else if (isMidRange) {
     performanceLevel = 'Gama Media / Competitivo';
+    recommendedWatts = 550;
     capabilities.push('Gaming en 1080p y 1440p en calidad Alta');
     capabilities.push('Edición de video 4K y diseño gráfico avanzado');
     capabilities.push('Juegos competitivos (Esports) a más de 144 FPS');
   } else if (gpu) {
     performanceLevel = 'Gama de Entrada Gamer';
+    recommendedWatts = 450;
     capabilities.push('Gaming en 1080p en calidad Media');
     capabilities.push('Multitarea fluida y edición fotográfica');
   } else {
     capabilities.push('Navegación web, tareas de oficina y reproducción multimedia HD.');
   }
 
-  let psuAdvice = '';
-  if (gpuName.includes('5070') && psu && Number(psu.modelo.replace(/\D/g, '')) < 750) {
-    psuAdvice = '<p style="color:#e11d48; margin-top:8px;">⚠️ <strong>Advertencia:</strong> Se recomienda una fuente de poder de al menos 750W para esta tarjeta gráfica.</p>';
+  if (cpu) {
+    capabilities.push(`Procesador: ${escapeHTML(cpu.marca)} ${escapeHTML(cpu.modelo)}`);
   }
 
+  let psuAdvice = '';
+  if (gpu && psu) {
+    const watts = getPsuWatts(psu);
+    if (watts && watts < recommendedWatts) {
+      psuAdvice = `<p class="warning-text">⚠️ <strong>Advertencia:</strong> la fuente seleccionada (${watts} W) está por debajo de los ${recommendedWatts} W recomendados para esta tarjeta gráfica.</p>`;
+    }
+  }
+
+  const missing = COMPONENT_TYPES.filter(t => !builderSetup.has(t.value)).map(t => t.short);
+  const missingHTML = missing.length
+    ? `<p class="missing-parts">Faltan: ${escapeHTML(missing.join(', '))}</p>`
+    : '<p class="complete-parts">✓ Configuración completa</p>';
+
   detailsContainer.innerHTML = `
-    <span class="performance-badge" style="display:inline-block; padding:3px 8px; background:#dbeafe; color:#1e40af; border-radius:4px; font-weight:700; font-size:11px; margin-bottom:8px;">${performanceLevel}</span>
+    <span class="performance-badge">${performanceLevel}</span>
     <p><strong>Capacidad estimada:</strong></p>
     <ul style="padding-left: 18px; margin: 6px 0;">
       ${capabilities.map(cap => `<li>${cap}</li>`).join('')}
     </ul>
     ${psuAdvice}
+    ${missingHTML}
   `;
 }
 
 // ------------------------------------------------------------------
-// 11. Event Listeners e Inicialización
+// 12. Búsqueda del catálogo
+// ------------------------------------------------------------------
+function runCatalogSearch() {
+  const query = normalizeText(document.querySelector('#search-input')?.value || '');
+  const filtered = query
+    ? products.filter(p => normalizeText(`${p.marca} ${p.modelo} ${p.tipo} ${p.descripcion || ''}`).includes(query))
+    : products;
+
+  renderProducts(filtered);
+
+  const statusEl = getStatusMessage();
+  if (statusEl) {
+    statusEl.textContent = query
+      ? `${filtered.length} resultado(s) para "${query}".`
+      : `Catálogo cargado (${products.length} componentes).`;
+  }
+}
+
+// ------------------------------------------------------------------
+// 13. Event Listeners e Inicialización
 // ------------------------------------------------------------------
 function initApp() {
+  populateTypeSelects();
+
+  // Un único listener de clics para todos los botones generados dinámicamente
   document.addEventListener('click', event => {
     const addButton = event.target.closest('[data-add]');
-    if (addButton) addToCart(addButton.dataset.add);
-  });
+    if (addButton) {
+      addToCart(addButton.dataset.add);
+      return;
+    }
 
-  document.querySelector('#search-form')?.addEventListener('submit', event => {
-    event.preventDefault();
-    const query = document.querySelector('#search-input').value.trim().toLocaleLowerCase('es-MX');
-    const filtered = query
-      ? products.filter(p => `${p.marca} ${p.modelo} ${p.tipo} ${p.descripcion || ''}`.toLocaleLowerCase('es-MX').includes(query))
-      : products;
-    renderProducts(filtered);
-    
-    const statusEl = getStatusMessage();
-    if (statusEl) {
-      statusEl.textContent = query
-        ? `${filtered.length} resultado(s) para "${query}".`
-        : `Catálogo cargado (${products.length} componentes).`;
+    const cartButton = event.target.closest('[data-cart-action]');
+    if (cartButton) {
+      handleCartAction(cartButton.dataset.cartAction, cartButton.dataset.id);
+      return;
+    }
+
+    const removeSlotButton = event.target.closest('[data-remove-slot]');
+    if (removeSlotButton) {
+      removeSlotItem(removeSlotButton.dataset.removeSlot);
+      return;
+    }
+
+    const saleButton = event.target.closest('[data-sale-status]');
+    if (saleButton) {
+      updateSaleStatus(saleButton.dataset.saleId, saleButton.dataset.saleStatus);
+      return;
+    }
+
+    const inventorySaveButton = event.target.closest('[data-inv-save]');
+    if (inventorySaveButton) {
+      saveInventoryRow(inventorySaveButton.dataset.invSave, inventorySaveButton.closest('tr'), inventorySaveButton);
     }
   });
 
+  // Búsqueda
+  document.querySelector('#search-form')?.addEventListener('submit', event => {
+    event.preventDefault();
+    runCatalogSearch();
+  });
+  document.querySelector('#search-input')?.addEventListener('input', runCatalogSearch);
+
+  // Carrito
   document.querySelector('#cart-button')?.addEventListener('click', () => {
     const feedbackEl = document.querySelector('#sale-feedback');
     if (feedbackEl) feedbackEl.textContent = '';
@@ -803,6 +1219,7 @@ function initApp() {
 
   document.querySelector('#checkout-form')?.addEventListener('submit', handleRegisterSale);
 
+  // Ventas
   document.querySelector('#open-sales-btn')?.addEventListener('click', async () => {
     document.querySelector('#sales-dialog')?.showModal();
     await loadSales();
@@ -816,6 +1233,24 @@ function initApp() {
   document.querySelector('#sales-search')?.addEventListener('input', renderSalesList);
   document.querySelector('#sales-filter-status')?.addEventListener('change', renderSalesList);
 
+  // Inventario
+  document.querySelector('#open-inventory-btn')?.addEventListener('click', async () => {
+    setInventoryFeedback('');
+    document.querySelector('#inventory-dialog')?.showModal();
+    await loadInventory();
+  });
+
+  document.querySelector('#close-inventory')?.addEventListener('click', () => {
+    document.querySelector('#inventory-dialog')?.close();
+  });
+
+  document.querySelector('#refresh-inventory-btn')?.addEventListener('click', loadInventory);
+  document.querySelector('#inventory-search')?.addEventListener('input', renderInventory);
+  document.querySelector('#inventory-filter-type')?.addEventListener('change', renderInventory);
+  document.querySelector('#inventory-only-low')?.addEventListener('change', renderInventory);
+  document.querySelector('#product-form')?.addEventListener('submit', handleCreateProduct);
+
+  // Armador
   document.querySelector('#add-builder-to-cart')?.addEventListener('click', () => {
     if (builderSetup.size === 0) {
       alert('Arrastra al menos un componente a las casillas antes de agregar el setup al carrito.');

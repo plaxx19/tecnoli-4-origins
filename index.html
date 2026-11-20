@@ -29,6 +29,10 @@
     </form>
 
     <div class="header-actions">
+      <button class="account-action" id="open-inventory-btn" type="button" aria-label="Ver inventario">
+        <span class="action-icon">📦</span>
+        <span><strong>Inventario</strong><small>Productos y stock</small></span>
+      </button>
       <button class="account-action" id="open-sales-btn" type="button" aria-label="Ver ventas">
         <span class="action-icon">📋</span>
         <span><strong>Ventas</strong><small>Historial</small></span>
@@ -46,6 +50,7 @@
 
   <nav class="category-nav" aria-label="Navegación principal">
     <a class="nav-link active" href="#inicio"><span>⌂</span> Inicio</a>
+    <a class="nav-link" href="#cpu">⚙ <span>CPU</span></a>
     <a class="nav-link" href="#gpu">▣ <span>GPU</span></a>
     <a class="nav-link" href="#motherboard">▦ <span>Motherboard</span></a>
     <a class="nav-link" href="#ram">▤ <span>RAM</span></a>
@@ -73,7 +78,7 @@
 
     <!-- Layout dividido: Catálogo a la izquierda, Armador Fijo 3D a la derecha -->
     <div class="layout-split">
-      
+
       <!-- Columna Catálogo de Productos -->
       <div class="catalog-column">
         <section class="section-block best-section" id="mas-vendidos">
@@ -85,11 +90,16 @@
         </section>
 
         <div id="catalogo" class="category-sections">
+          <section class="section-block category-section" id="cpu">
+            <div class="section-heading"><h2><span class="heading-accent orange"></span>Procesadores</h2><a href="#cpu">Ver todos <span>›</span></a></div>
+            <div class="mini-grid" data-category="CPU"></div>
+          </section>
+
           <section class="section-block category-section" id="gpu">
             <div class="section-heading"><h2><span class="heading-accent cyan"></span>GPU</h2><a href="#gpu">Ver todos <span>›</span></a></div>
             <div class="mini-grid" data-category="GPU"></div>
           </section>
-          
+
           <section class="section-block category-section" id="motherboard">
             <div class="section-heading"><h2><span class="heading-accent cyan"></span>Motherboards</h2><a href="#motherboard">Ver todos <span>›</span></a></div>
             <div class="mini-grid" data-category="Motherboard"></div>
@@ -137,6 +147,10 @@
 
           <!-- Casillas de componentes Drag & Drop -->
           <div class="builder-slots">
+            <div class="drop-slot" data-slot="CPU">
+              <span class="slot-label">⚙ CPU</span>
+              <div class="slot-content">Arrastra CPU aquí</div>
+            </div>
             <div class="drop-slot" data-slot="GPU">
               <span class="slot-label">▣ GPU</span>
               <div class="slot-content">Arrastra GPU aquí</div>
@@ -256,7 +270,7 @@
 
     <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
       <input type="search" id="sales-search" placeholder="Buscar por folio (VTA-...) o cliente..." style="flex: 1; min-width: 200px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px;" />
-      
+
       <select id="sales-filter-status" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; background: #fff;">
         <option value="TODOS">Todos los estados</option>
         <option value="PAGADA">PAGADA</option>
@@ -276,6 +290,91 @@
 
     <div id="sales-list" style="max-height: 440px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
       <p class="empty-cart">Cargando ventas...</p>
+    </div>
+  </dialog>
+
+  <!-- Modal Inventario y Registro de Productos -->
+  <dialog id="inventory-dialog" class="cart-dialog inventory-dialog">
+    <div class="dialog-heading">
+      <h2>Inventario y productos</h2>
+      <button id="close-inventory" type="button" aria-label="Cerrar">×</button>
+    </div>
+
+    <details class="new-product" id="new-product-details">
+      <summary>＋ Registrar producto nuevo</summary>
+      <form id="product-form" class="product-form">
+        <label>
+          <span>Tipo *</span>
+          <select id="product-type" required></select>
+        </label>
+        <label>
+          <span>Marca *</span>
+          <input type="text" id="product-brand" required placeholder="NVIDIA" />
+        </label>
+        <label>
+          <span>Modelo *</span>
+          <input type="text" id="product-model" required placeholder="RTX 4060 8GB" />
+        </label>
+        <label>
+          <span>Precio (MXN) *</span>
+          <input type="number" id="product-price" required min="0" step="0.01" placeholder="7999" />
+        </label>
+        <label>
+          <span>Stock inicial *</span>
+          <input type="number" id="product-stock" required min="0" step="1" value="0" />
+        </label>
+        <label>
+          <span>Badge (opcional)</span>
+          <input type="text" id="product-badge" placeholder="Nuevo, Oferta, Premium" />
+        </label>
+        <label class="wide">
+          <span>URL de imagen</span>
+          <input type="url" id="product-image" placeholder="https://..." />
+        </label>
+        <label class="wide">
+          <span>Descripción</span>
+          <textarea id="product-description" rows="2" placeholder="Características principales"></textarea>
+        </label>
+        <div class="checks wide">
+          <label class="check-inline"><input type="checkbox" id="product-active" checked /> Activo (visible en el catálogo)</label>
+          <label class="check-inline"><input type="checkbox" id="product-best" /> Más vendido</label>
+          <label class="check-inline"><input type="checkbox" id="product-serial" /> Controla número de serie</label>
+        </div>
+        <p id="product-feedback" class="form-feedback wide" role="status"></p>
+        <button type="submit" id="save-product-btn" class="primary-button wide">✓ Guardar producto</button>
+      </form>
+    </details>
+
+    <div class="inventory-toolbar">
+      <input type="search" id="inventory-search" placeholder="Buscar por marca, modelo o tipo..." />
+      <select id="inventory-filter-type"></select>
+      <label class="check-inline"><input type="checkbox" id="inventory-only-low" /> Solo stock bajo</label>
+      <button type="button" id="refresh-inventory-btn" class="primary-button">↻ Actualizar</button>
+    </div>
+
+    <div class="inventory-summary">
+      <span>Productos: <strong id="inventory-count">0</strong></span>
+      <span>Unidades: <strong id="inventory-units">0</strong></span>
+      <span>Stock bajo: <strong id="inventory-low">0</strong></span>
+    </div>
+
+    <p id="inventory-feedback" class="form-feedback" role="status"></p>
+
+    <div class="inventory-table-wrap">
+      <table class="inventory-table">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Precio (MXN)</th>
+            <th>Stock</th>
+            <th>Activo</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="inventory-body">
+          <tr><td colspan="5" class="empty-cart">Cargando inventario...</td></tr>
+        </tbody>
+      </table>
     </div>
   </dialog>
 </body>
