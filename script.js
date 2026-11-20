@@ -8,8 +8,8 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.m
 const SUPABASE_URL = "https://ibfkdbuahvbzhoqigeii.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_RUq18PkAFzxMwUqzdmdamg_qQb2j6ky";
 
-const isSupabaseConfigured = 
-  SUPABASE_URL !== 'HTTPS://TU-PROYECTO.supabase.co' && 
+const isSupabaseConfigured =
+  SUPABASE_URL !== 'HTTPS://TU-PROYECTO.supabase.co' &&
   SUPABASE_ANON_KEY !== 'TU_SUPABASE_ANON_KEY';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -24,26 +24,29 @@ const money = new Intl.NumberFormat('es-MX', {
 });
 
 const LOW_STOCK_LIMIT = 3;
+const SESSION_STORAGE_KEY = 'tecnoli_user_session';
+const CART_STORAGE_KEY = 'tecnoli_cart_items';
 
-// Tipos de componente: "value" es lo que se guarda en la columna "tipo" de Supabase.
-// Si tu base usa otros nombres (por ejemplo "Procesador"), cambia solo el "value".
 const COMPONENT_TYPES = [
-  { value: 'CPU',             label: 'Procesador (CPU)',     short: 'CPU' },
+  { value: 'CPU',             label: 'Procesador (CPU)',      short: 'CPU' },
   { value: 'GPU',             label: 'Tarjeta gráfica (GPU)', short: 'GPU' },
-  { value: 'Motherboard',     label: 'Motherboard',          short: 'Motherboard' },
-  { value: 'RAM',             label: 'Memoria RAM',          short: 'RAM' },
-  { value: 'fuente de poder', label: 'Fuente de poder',      short: 'Fuente' },
-  { value: 'almacenamiento',  label: 'Almacenamiento',       short: 'Disco' },
-  { value: 'gabinete',        label: 'Gabinete',             short: 'Gabinete' },
-  { value: 'refrigeracion',   label: 'Refrigeración',        short: 'Cooler' }
+  { value: 'Motherboard',     label: 'Motherboard',           short: 'Motherboard' },
+  { value: 'RAM',             label: 'Memoria RAM',           short: 'RAM' },
+  { value: 'fuente de poder', label: 'Fuente de poder',       short: 'Fuente' },
+  { value: 'almacenamiento',  label: 'Almacenamiento',        short: 'Disco' },
+  { value: 'gabinete',        label: 'Gabinete',              short: 'Gabinete' },
+  { value: 'refrigeracion',   label: 'Refrigeración',         short: 'Cooler' }
 ];
 
-// Sinónimos aceptados al comparar tipos (ya normalizados: sin acentos, minúsculas)
 const TYPE_ALIASES = { procesador: 'cpu', procesadores: 'cpu' };
 
 let products = [];
 let inventory = [];
 let allSales = [];
+let allUsers = [];
+let currentUser = null;
+let clearCartConfirmTimer = null;
+
 const cart = new Map();
 const builderSetup = new Map();
 
@@ -52,7 +55,6 @@ let animationId = null;
 let render3DActive = false;
 const installed3DMeshes = new Map();
 
-// pos / size en unidades 3D. "opacity" hace la pieza translúcida (gabinete).
 const SLOT_CONFIG_3D = {
   'Motherboard':     { pos: [0, 0.1, -0.2],    size: [0.1, 3.0, 3.0],  color: 0x10b981 },
   'CPU':             { pos: [0.11, 0.5, 0.3],  size: [0.12, 0.5, 0.5], color: 0xa855f7 },
@@ -123,6 +125,27 @@ function stockTag(product) {
   return `<small class="stock-tag${level}">Stock: ${stock}</small>`;
 }
 
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(email || '').trim());
+}
+
+function isValidPhone(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  return digits.length >= 7 && digits.length <= 15;
+}
+
+function isAdminUser(user = currentUser) {
+  return String(user?.rol || '').toUpperCase() === 'ADMIN';
+}
+
+async function hashPasswordSHA256(plainText) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(plainText);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 // ------------------------------------------------------------------
 // 4. Renderizado 3D (Three.js)
 // ------------------------------------------------------------------
@@ -154,7 +177,6 @@ function init3DCase(containerId) {
   sun.position.set(5, 10, 7);
   scene3D.add(sun);
 
-  // Todo (gabinete y piezas) cuelga de un grupo para que rote junto
   pcGroup = new THREE.Group();
   scene3D.add(pcGroup);
 
@@ -172,10 +194,8 @@ function init3DCase(containerId) {
   camera3D.position.set(5, 3, 6);
   camera3D.lookAt(0, 0, 0);
 
-  // Ajusta el visor cuando cambia el tamaño del contenedor
   new ResizeObserver(() => resize3D(container)).observe(container);
 
-  // Solo anima mientras el visor está en pantalla
   new IntersectionObserver(entries => {
     setRender3D(entries[0].isIntersecting);
   }).observe(container);
@@ -223,7 +243,6 @@ function disposeMesh(mesh) {
   }
 }
 
-// product = objeto del componente instalado, o null para retirar la pieza
 function update3DPiece(slotType, product) {
   if (!pcGroup) return;
 
@@ -233,7 +252,6 @@ function update3DPiece(slotType, product) {
   const existing = installed3DMeshes.get(slotType);
   const productId = product ? String(product.id_componente) : null;
 
-  // Si ya está montada la misma pieza no se vuelve a crear
   if (existing && existing.userData.productId === productId) return;
 
   if (existing) {
@@ -299,7 +317,7 @@ function renderProducts(list) {
 
   const best = list.filter(p => p.best_seller || p.badge).slice(0, 5);
   const fallbackBest = best.length ? best : list.slice(0, 5);
-  
+
   bestContainer.innerHTML = fallbackBest.length
     ? fallbackBest.map(renderBestSeller).join('')
     : `<p class="empty-cart">No hay componentes disponibles.</p>`;
@@ -338,9 +356,11 @@ async function loadProducts() {
     if (error) throw error;
 
     products = data || [];
+    restoreCartFromStorage(products);
+
     if (statusEl) {
-      statusEl.textContent = products.length 
-        ? `Catálogo cargado (${products.length} componentes disponibles).` 
+      statusEl.textContent = products.length
+        ? `Catálogo cargado (${products.length} componentes disponibles).`
         : 'No hay componentes activos en el inventario.';
     }
     renderProducts(products);
@@ -354,10 +374,53 @@ async function loadProducts() {
 // ------------------------------------------------------------------
 // 7. Manejo del Carrito de Compras y Registro de Venta
 // ------------------------------------------------------------------
+function saveCartToStorage() {
+  try {
+    const payload = [...cart.values()].map(({ product, quantity }) => ({
+      id_componente: String(product.id_componente),
+      quantity: Number(quantity) || 1
+    }));
+    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(payload));
+  } catch (err) {
+    console.warn('No se pudo guardar el carrito en localStorage:', err);
+  }
+}
+
+function restoreCartFromStorage(availableProducts = products) {
+  try {
+    const raw = localStorage.getItem(CART_STORAGE_KEY);
+    if (!raw) return;
+
+    const savedList = JSON.parse(raw);
+    if (!Array.isArray(savedList)) return;
+
+    cart.clear();
+    for (const entry of savedList) {
+      const id = String(entry?.id_componente || '');
+      const desiredQty = Math.max(1, Number(entry?.quantity) || 1);
+      const product = availableProducts.find(p => String(p.id_componente) === id);
+      const maxStock = Number(product?.stock) || 0;
+
+      if (product && maxStock > 0) {
+        cart.set(id, {
+          product,
+          quantity: Math.min(desiredQty, maxStock)
+        });
+      }
+    }
+
+    saveCartToStorage();
+    updateCartUI();
+  } catch (err) {
+    console.warn('Carrito guardado inválido, limpiando...', err);
+    localStorage.removeItem(CART_STORAGE_KEY);
+  }
+}
+
 function addToCart(productId) {
   const product = products.find(p => String(p.id_componente) === String(productId));
   if (!product) return;
-  
+
   const key = String(product.id_componente);
   const current = cart.get(key);
   const currentQty = current?.quantity || 0;
@@ -368,6 +431,7 @@ function addToCart(productId) {
   }
 
   cart.set(key, { product, quantity: currentQty + 1 });
+  saveCartToStorage();
   updateCartUI();
 }
 
@@ -381,11 +445,51 @@ function removeFromCart(productId) {
   } else {
     cart.delete(key);
   }
+  saveCartToStorage();
   updateCartUI();
 }
 
 function deleteFromCart(productId) {
   cart.delete(String(productId));
+  saveCartToStorage();
+  updateCartUI();
+}
+
+function resetClearCartButton() {
+  clearTimeout(clearCartConfirmTimer);
+  const clearBtn = document.querySelector('#clear-cart-btn');
+  if (!clearBtn) return;
+  clearBtn.dataset.confirming = 'false';
+  clearBtn.textContent = '🗑 Vaciar carrito';
+  clearBtn.style.fontWeight = '';
+}
+
+function clearCart() {
+  if (cart.size === 0) return;
+
+  const clearBtn = document.querySelector('#clear-cart-btn');
+  if (!clearBtn) {
+    cart.clear();
+    saveCartToStorage();
+    updateCartUI();
+    return;
+  }
+
+  if (clearBtn.dataset.confirming !== 'true') {
+    clearBtn.dataset.confirming = 'true';
+    clearBtn.textContent = '⚠ ¿Seguro? Clic para vaciar';
+    clearBtn.style.fontWeight = '700';
+
+    clearTimeout(clearCartConfirmTimer);
+    clearCartConfirmTimer = setTimeout(() => {
+      resetClearCartButton();
+    }, 3500);
+    return;
+  }
+
+  resetClearCartButton();
+  cart.clear();
+  saveCartToStorage();
   updateCartUI();
 }
 
@@ -404,11 +508,17 @@ function updateCartUI() {
   const totalEl = document.querySelector('#cart-total');
   const dialogTotalEl = document.querySelector('#dialog-total');
   const itemsEl = document.querySelector('#cart-items');
+  const clearBtn = document.querySelector('#clear-cart-btn');
 
   if (countEl) countEl.textContent = quantity;
   if (totalEl) totalEl.textContent = money.format(total);
   if (dialogTotalEl) dialogTotalEl.textContent = money.format(total);
-  
+
+  if (clearBtn) {
+    clearBtn.disabled = entries.length === 0;
+    if (entries.length === 0) resetClearCartButton();
+  }
+
   if (itemsEl) {
     itemsEl.innerHTML = entries.length
       ? entries.map(({ product, quantity: qty }) => {
@@ -454,7 +564,8 @@ async function resolveOrCreateUsuario({ correo, nombre, numero_tel, direccion })
       correo,
       numero_tel: numero_tel || null,
       password_hash: 'GUEST_CHECKOUT_' + crypto.randomUUID(),
-      direccion: direccion || null
+      direccion: direccion || null,
+      rol: 'CLIENTE'
     })
     .select('id_usuario')
     .single();
@@ -557,6 +668,7 @@ async function handleRegisterSale(event) {
     }
 
     cart.clear();
+    saveCartToStorage();
     updateCartUI();
     document.querySelector('#checkout-form').reset();
 
@@ -566,6 +678,10 @@ async function handleRegisterSale(event) {
     }
 
     await loadProducts();
+    if (currentUser) await loadMySales();
+    if (isAdminUser()) {
+      await Promise.all([loadSales(), loadUsersList()]);
+    }
   } catch (err) {
     console.error('Error al registrar la venta:', err);
     if (feedbackEl) {
@@ -579,10 +695,15 @@ async function handleRegisterSale(event) {
 }
 
 // ------------------------------------------------------------------
-// 8. Módulo para Ver y Gestionar Ventas
+// 8. Módulo para Ver y Gestionar Ventas (solo ADMIN)
 // ------------------------------------------------------------------
 async function loadSales() {
   const listEl = document.querySelector('#sales-list');
+  if (!isAdminUser()) {
+    if (listEl) listEl.innerHTML = '<p class="empty-cart">Acceso restringido a administradores.</p>';
+    return;
+  }
+
   if (listEl) listEl.innerHTML = '<p class="empty-cart">Consultando ventas en Supabase...</p>';
 
   try {
@@ -639,6 +760,11 @@ function renderSalesList() {
   const countEl = document.querySelector('#sales-count');
   const grandTotalEl = document.querySelector('#sales-grand-total');
   if (!listEl) return;
+
+  if (!isAdminUser()) {
+    listEl.innerHTML = '';
+    return;
+  }
 
   const query = normalizeText(document.querySelector('#sales-search')?.value || '');
   const statusFilter = document.querySelector('#sales-filter-status')?.value || 'TODOS';
@@ -727,6 +853,7 @@ function renderSalesList() {
 }
 
 async function updateSaleStatus(idVenta, nuevoEstado) {
+  if (!isAdminUser()) return;
   if (nuevoEstado === 'CANCELADA' && !confirm('¿Seguro que deseas cancelar esta venta?')) return;
 
   try {
@@ -737,6 +864,7 @@ async function updateSaleStatus(idVenta, nuevoEstado) {
 
     if (error) throw error;
     await loadSales();
+    if (currentUser) await loadMySales();
   } catch (err) {
     console.error('Error al actualizar estado de venta:', err);
     alert(`No se pudo actualizar el estado: ${err.message}`);
@@ -744,7 +872,7 @@ async function updateSaleStatus(idVenta, nuevoEstado) {
 }
 
 // ------------------------------------------------------------------
-// 9. Inventario: stock visible/editable y alta de productos nuevos
+// 9. Inventario: stock visible/editable y alta de productos nuevos (solo ADMIN)
 // ------------------------------------------------------------------
 function populateTypeSelects() {
   const options = COMPONENT_TYPES
@@ -774,6 +902,11 @@ function setInventoryFeedback(message, kind = '') {
 
 async function loadInventory() {
   const body = document.querySelector('#inventory-body');
+  if (!isAdminUser()) {
+    if (body) body.innerHTML = '<tr><td colspan="5" class="empty-cart">Acceso restringido a administradores.</td></tr>';
+    return;
+  }
+
   if (body) body.innerHTML = '<tr><td colspan="5" class="empty-cart">Consultando inventario...</td></tr>';
 
   try {
@@ -798,6 +931,11 @@ async function loadInventory() {
 function renderInventory() {
   const body = document.querySelector('#inventory-body');
   if (!body) return;
+
+  if (!isAdminUser()) {
+    body.innerHTML = '';
+    return;
+  }
 
   const query = normalizeText(document.querySelector('#inventory-search')?.value || '');
   const typeFilter = document.querySelector('#inventory-filter-type')?.value || 'TODOS';
@@ -846,6 +984,7 @@ function renderInventory() {
 }
 
 async function saveInventoryRow(idComponente, rowEl, buttonEl) {
+  if (!isAdminUser()) return;
   const item = inventory.find(i => String(i.id_componente) === String(idComponente));
   if (!item || !rowEl) return;
 
@@ -856,81 +995,61 @@ async function saveInventoryRow(idComponente, rowEl, buttonEl) {
   const stock = Number(stockRaw);
 
   if (precioRaw === '' || stockRaw === '' || !Number.isFinite(precio) || precio < 0 || !Number.isInteger(stock) || stock < 0) {
-    setInventoryFeedback('Revisa los datos: el precio debe ser 0 o mayor y el stock un número entero de 0 o más.', 'error');
+    setInventoryFeedback('Verifica que el precio sea mayor o igual a 0 y el stock un entero mayor o igual a 0.', 'error');
     return;
   }
 
   try {
-    if (buttonEl) buttonEl.disabled = true;
+    buttonEl.disabled = true;
+    buttonEl.textContent = '...';
+    setInventoryFeedback('');
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('componentes')
       .update({ precio, stock, activo })
-      .eq('id_componente', item.id_componente)
-      .select('id_componente');
+      .eq('id_componente', idComponente);
 
     if (error) throw error;
-    if (!data || data.length === 0) {
-      throw new Error('No se actualizó ningún registro (revisa las políticas RLS de la tabla componentes).');
-    }
 
-    Object.assign(item, { precio, stock, activo });
-    renderInventory();
-    setInventoryFeedback(`✓ ${item.marca} ${item.modelo} actualizado.`, 'ok');
-    await loadProducts();
+    setInventoryFeedback(`Cambios guardados en ${item.marca} ${item.modelo}.`, 'ok');
+    await Promise.all([loadInventory(), loadProducts()]);
   } catch (err) {
     console.error('Error al actualizar componente:', err);
     setInventoryFeedback(`No se pudo guardar: ${err.message}`, 'error');
-    if (buttonEl) buttonEl.disabled = false;
+  } finally {
+    buttonEl.disabled = false;
+    buttonEl.textContent = 'Guardar';
   }
 }
 
 async function handleCreateProduct(event) {
   event.preventDefault();
+  if (!isAdminUser()) return;
   const submitBtn = document.querySelector('#save-product-btn');
 
   const tipo = document.querySelector('#product-type').value;
   const marca = document.querySelector('#product-brand').value.trim();
   const modelo = document.querySelector('#product-model').value.trim();
-  const precioRaw = document.querySelector('#product-price').value.trim();
-  const stockRaw = document.querySelector('#product-stock').value.trim();
-  const badge = document.querySelector('#product-badge').value.trim();
-  const imageUrl = document.querySelector('#product-image').value.trim();
-  const descripcion = document.querySelector('#product-description').value.trim();
+  const precio = Number(document.querySelector('#product-price').value);
+  const stock = Number(document.querySelector('#product-stock').value);
+  const badge = document.querySelector('#product-badge').value.trim() || null;
+  const image_url = document.querySelector('#product-image').value.trim() || null;
+  const descripcion = document.querySelector('#product-description').value.trim() || null;
   const activo = document.querySelector('#product-active').checked;
-  const bestSeller = document.querySelector('#product-best').checked;
-  const controlaSerie = document.querySelector('#product-serial').checked;
+  const best_seller = document.querySelector('#product-best').checked;
+  const controla_serie = document.querySelector('#product-serial').checked;
 
-  const precio = Number(precioRaw);
-  const stock = Number(stockRaw);
-
-  if (!marca || !modelo) {
-    setFeedback('#product-feedback', 'La marca y el modelo son obligatorios.', 'error');
-    return;
-  }
-  if (precioRaw === '' || !Number.isFinite(precio) || precio < 0) {
-    setFeedback('#product-feedback', 'Ingresa un precio válido (0 o mayor).', 'error');
-    return;
-  }
-  if (stockRaw === '' || !Number.isInteger(stock) || stock < 0) {
-    setFeedback('#product-feedback', 'El stock debe ser un número entero de 0 o más.', 'error');
-    return;
-  }
-
-  const duplicate = inventory.find(item =>
-    canonicalType(item.tipo) === canonicalType(tipo) &&
-    normalizeText(item.marca) === normalizeText(marca) &&
-    normalizeText(item.modelo) === normalizeText(modelo)
-  );
-  if (duplicate && !confirm('Ya existe un componente con la misma marca, modelo y tipo. ¿Quieres registrarlo de todos modos?')) {
+  if (!marca || !modelo || !Number.isFinite(precio) || precio < 0 || !Number.isInteger(stock) || stock < 0) {
+    setFeedback('#product-feedback', 'Completa los campos obligatorios con valores válidos.', 'error');
     return;
   }
 
   try {
     submitBtn.disabled = true;
-    setFeedback('#product-feedback', 'Guardando producto...', '');
+    submitBtn.textContent = 'Guardando...';
+    setFeedback('#product-feedback', 'Guardando producto en Supabase...');
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('componentes')
       .insert({
         tipo,
@@ -938,340 +1057,956 @@ async function handleCreateProduct(event) {
         modelo,
         precio,
         stock,
-        badge: badge || null,
-        image_url: imageUrl || null,
-        descripcion: descripcion || null,
+        badge,
+        image_url,
+        descripcion,
         activo,
-        best_seller: bestSeller,
-        controla_serie: controlaSerie
-      })
-      .select('*')
-      .single();
+        best_seller,
+        controla_serie
+      });
 
     if (error) throw error;
 
     document.querySelector('#product-form').reset();
     document.querySelector('#product-active').checked = true;
-    setFeedback('#product-feedback', `✓ Producto registrado: ${data.marca} ${data.modelo}`, 'ok');
+    setFeedback('#product-feedback', `✓ Producto "${marca} ${modelo}" guardado.`, 'ok');
 
-    await loadInventory();
-    await loadProducts();
+    await Promise.all([loadInventory(), loadProducts()]);
   } catch (err) {
-    console.error('Error al registrar producto:', err);
-    setFeedback('#product-feedback', `Error al registrar: ${err.message || 'Revisa las políticas RLS y los nombres de columnas.'}`, 'error');
+    console.error('Error al crear producto:', err);
+    setFeedback('#product-feedback', `Error al guardar: ${err.message}`, 'error');
   } finally {
     submitBtn.disabled = false;
+    submitBtn.textContent = '✓ Guardar producto';
   }
 }
 
 // ------------------------------------------------------------------
-// 10. Lógica Drag & Drop (Arma tu PC)
+// 10. Cuenta de Usuario: Registro, Login, Sesión, Compras y Admin
 // ------------------------------------------------------------------
-function setupDragAndDrop() {
-  document.addEventListener('dragstart', event => {
-    const card = event.target.closest?.('[data-drag-id]');
-    if (card) {
-      event.dataTransfer.setData('text/plain', card.dataset.dragId);
-      event.dataTransfer.effectAllowed = 'copy';
-    }
-  });
-
-  const dropSlots = document.querySelectorAll('.drop-slot');
-
-  dropSlots.forEach(slot => {
-    slot.addEventListener('dragover', event => {
-      event.preventDefault();
-      event.dataTransfer.dropEffect = 'copy';
-      slot.classList.add('drag-over');
-    });
-
-    slot.addEventListener('dragleave', () => {
-      slot.classList.remove('drag-over');
-    });
-
-    slot.addEventListener('drop', event => {
-      event.preventDefault();
-      slot.classList.remove('drag-over');
-      
-      const productId = event.dataTransfer.getData('text/plain');
-      const product = products.find(p => String(p.id_componente) === String(productId));
-
-      if (!product) return;
-
-      // Regla de compatibilidad: la casilla solo acepta su propio tipo de componente
-      if (canonicalType(slot.dataset.slot) !== canonicalType(product.tipo)) {
-        alert(`Este espacio es exclusivo para componentes del tipo "${typeLabel(slot.dataset.slot)}".`);
-        return;
-      }
-
-      builderSetup.set(slot.dataset.slot, product);
-      updateBuilderUI();
-    });
-  });
+function setAccountFeedback(selector, message, kind = '') {
+  const el = document.querySelector(selector);
+  if (!el) return;
+  el.textContent = message;
+  el.style.color = kind === 'ok' ? '#16a34a' : kind === 'error' ? '#dc2626' : '#0869e8';
 }
 
-function removeSlotItem(slotName) {
-  builderSetup.delete(slotName);
-  updateBuilderUI();
-}
-
-function updateBuilderUI() {
-  let totalPrice = 0;
-  const dropSlots = document.querySelectorAll('.drop-slot');
-
-  dropSlots.forEach(slot => {
-    const slotName = slot.dataset.slot;
-    const contentDiv = slot.querySelector('.slot-content');
-    const product = builderSetup.get(slotName);
-
-    if (product) {
-      slot.classList.add('filled');
-      totalPrice += Number(product.precio) || 0;
-      update3DPiece(slotName, product);
-
-      contentDiv.innerHTML = `
-        <div class="slotted-item">
-          <span>
-            <strong>${escapeHTML(product.marca)} ${escapeHTML(product.modelo)}</strong>
-            <small style="display:block; color:#647084;">${money.format(Number(product.precio) || 0)}</small>
-          </span>
-          <button class="remove-slotted" type="button" data-remove-slot="${escapeHTML(slotName)}" aria-label="Quitar componente">✕</button>
-        </div>`;
+function saveUserSession(user) {
+  currentUser = user ? { ...user, rol: String(user.rol || 'CLIENTE').toUpperCase() } : null;
+  try {
+    if (currentUser) {
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(currentUser));
     } else {
-      slot.classList.remove('filled');
-      update3DPiece(slotName, null);
-      const shortName = COMPONENT_TYPES.find(t => t.value === slotName)?.short || slotName;
-      contentDiv.textContent = `Arrastra ${shortName} aquí`;
+      localStorage.removeItem(SESSION_STORAGE_KEY);
     }
-  });
-
-  const totalPriceEl = document.querySelector('#builder-total-price');
-  if (totalPriceEl) {
-    totalPriceEl.textContent = `${money.format(totalPrice)} MXN`;
+  } catch (err) {
+    console.warn('No se pudo guardar la sesión en localStorage:', err);
   }
-  analyzePerformance();
+  updateAccountHeaderUI();
 }
 
-// ------------------------------------------------------------------
-// 11. Diagnóstico de Rendimiento
-// ------------------------------------------------------------------
-const GPU_HIGH_END = ['5090', '5080', '5070', '4090', '4080', '9070', '7900'];
-const GPU_MID_RANGE = ['4070', '4060', '3070', '3060', '7700', '7600', '9060', '6700'];
-
-// Lee los watts de la fuente: prefiere un número seguido de "W" ("750W");
-// si no existe, usa el primer grupo de 3-4 dígitos del modelo ("RM850x" => 850).
-function getPsuWatts(psu) {
-  if (!psu) return null;
-
-  const text = `${psu.modelo || ''} ${psu.descripcion || ''}`;
-  const explicit = text.match(/(\d{3,4})\s*w\b/i);
-  const fallback = String(psu.modelo || '').match(/\d{3,4}/);
-  const watts = explicit ? Number(explicit[1]) : (fallback ? Number(fallback[0]) : null);
-
-  return watts && watts >= 200 && watts <= 2000 ? watts : null;
+function restoreUserSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.id_usuario && parsed.correo) {
+      currentUser = {
+        ...parsed,
+        rol: String(parsed.rol || 'CLIENTE').toUpperCase()
+      };
+      updateAccountHeaderUI();
+    }
+  } catch (err) {
+    console.warn('Sesión guardada inválida, limpiando...', err);
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+  }
 }
 
-function analyzePerformance() {
-  const detailsContainer = document.querySelector('#builder-details');
-  if (!detailsContainer) return;
+function updateAccountHeaderUI() {
+  const labelEl = document.querySelector('#account-label');
+  const sublabelEl = document.querySelector('#account-sublabel');
+  const authBox = document.querySelector('#account-auth-box');
+  const sessionBox = document.querySelector('#account-session-box');
+  const titleEl = document.querySelector('#account-dialog-title');
+  const sessionName = document.querySelector('#session-user-name');
+  const sessionEmail = document.querySelector('#session-user-email');
+  const invBtn = document.querySelector('#open-inventory-btn');
+  const salesBtn = document.querySelector('#open-sales-btn');
+  const adminPanel = document.querySelector('#admin-users-panel');
 
-  if (builderSetup.size === 0) {
-    detailsContainer.innerHTML = '<p class="empty-summary">Arrastra componentes hacia las casillas superiores para analizar las capacidades del equipo.</p>';
+  const adminActive = isAdminUser();
+
+  if (invBtn) invBtn.style.display = adminActive ? '' : 'none';
+  if (salesBtn) salesBtn.style.display = adminActive ? '' : 'none';
+
+  if (currentUser) {
+    const role = String(currentUser.rol || 'CLIENTE').toUpperCase();
+    if (labelEl) labelEl.textContent = currentUser.nombre.split(' ')[0] || 'Mi cuenta';
+    if (sublabelEl) sublabelEl.textContent = `${role} · ${currentUser.num_cliente || 'Sesión activa'}`;
+    if (authBox) authBox.style.display = 'none';
+    if (sessionBox) sessionBox.style.display = 'block';
+    if (titleEl) titleEl.textContent = `Mi cuenta (${role})`;
+    if (sessionName) sessionName.textContent = `${currentUser.nombre} [${role}]`;
+    if (sessionEmail) sessionEmail.textContent = `${currentUser.correo}${currentUser.numero_tel ? ' · ' + currentUser.numero_tel : ''}`;
+
+    if (adminPanel) {
+      adminPanel.style.display = adminActive ? 'block' : 'none';
+    }
+
+    const profilePhone = document.querySelector('#profile-phone');
+    const profileAddress = document.querySelector('#profile-address');
+    if (profilePhone) profilePhone.value = currentUser.numero_tel || '';
+    if (profileAddress) profileAddress.value = currentUser.direccion || '';
+    setAccountFeedback('#profile-edit-feedback', '');
+
+    const saleEmail = document.querySelector('#sale-email');
+    const saleName = document.querySelector('#sale-name');
+    const salePhone = document.querySelector('#sale-phone');
+    const saleAddress = document.querySelector('#sale-address');
+    if (saleEmail && !saleEmail.value) saleEmail.value = currentUser.correo || '';
+    if (saleName && !saleName.value) saleName.value = currentUser.nombre || '';
+    if (salePhone && !salePhone.value) salePhone.value = currentUser.numero_tel || '';
+    if (saleAddress && !saleAddress.value) saleAddress.value = currentUser.direccion || '';
+
+    loadMySales();
+    if (adminActive) {
+      loadUsersList();
+    } else {
+      allUsers = [];
+      const usersListEl = document.querySelector('#users-list');
+      if (usersListEl) usersListEl.innerHTML = '';
+    }
+  } else {
+    if (labelEl) labelEl.textContent = 'Mi cuenta';
+    if (sublabelEl) sublabelEl.textContent = 'Iniciar sesión';
+    if (authBox) authBox.style.display = 'block';
+    if (sessionBox) sessionBox.style.display = 'none';
+    if (adminPanel) adminPanel.style.display = 'none';
+    switchAccountTab('register');
+
+    const checkoutForm = document.querySelector('#checkout-form');
+    if (checkoutForm) checkoutForm.reset();
+
+    const passForm = document.querySelector('#password-change-form');
+    if (passForm) passForm.reset();
+    const passDetails = document.querySelector('#password-change-details');
+    if (passDetails) passDetails.open = false;
+    setAccountFeedback('#password-change-feedback', '');
+
+    const mySalesEl = document.querySelector('#my-sales-list');
+    if (mySalesEl) mySalesEl.innerHTML = '';
+
+    allUsers = [];
+    const usersListEl = document.querySelector('#users-list');
+    if (usersListEl) usersListEl.innerHTML = '';
+  }
+}
+
+function switchAccountTab(mode) {
+  const regForm = document.querySelector('#register-form');
+  const loginForm = document.querySelector('#login-form');
+  const titleEl = document.querySelector('#account-dialog-title');
+  const guideEl = document.querySelector('#account-guide');
+  const tabReg = document.querySelector('#tab-register-btn');
+  const tabLogin = document.querySelector('#tab-login-btn');
+
+  setAccountFeedback('#register-feedback', '');
+  setAccountFeedback('#login-feedback', '');
+
+  if (mode === 'login') {
+    if (regForm) regForm.style.display = 'none';
+    if (loginForm) loginForm.style.display = 'flex';
+    if (titleEl) titleEl.textContent = 'Iniciar sesión';
+    if (guideEl) guideEl.textContent = 'Ingresa tu correo registrado y tu contraseña para acceder a tu cuenta.';
+    if (tabLogin) {
+      tabLogin.className = 'primary-button';
+      tabLogin.style.background = '';
+      tabLogin.style.color = '#fff';
+    }
+    if (tabReg) {
+      tabReg.className = 'small-button';
+      tabReg.style.background = '#e2e8f0';
+      tabReg.style.color = '#0f172a';
+    }
+  } else {
+    if (loginForm) loginForm.style.display = 'none';
+    if (regForm) regForm.style.display = 'flex';
+    if (titleEl) titleEl.textContent = 'Registro de usuario';
+    if (guideEl) guideEl.textContent = 'Completa tus datos para crear tu cuenta en Tecnoli. Todos los campos marcados con * son obligatorios.';
+    if (tabReg) {
+      tabReg.className = 'primary-button';
+      tabReg.style.background = '';
+      tabReg.style.color = '#fff';
+    }
+    if (tabLogin) {
+      tabLogin.className = 'small-button';
+      tabLogin.style.background = '#e2e8f0';
+      tabLogin.style.color = '#0f172a';
+    }
+  }
+}
+
+async function handleRegisterUser(event) {
+  event.preventDefault();
+  const submitBtn = document.querySelector('#register-submit-btn');
+
+  const nombre = document.querySelector('#reg-name')?.value.trim() || '';
+  const correo = document.querySelector('#reg-email')?.value.trim().toLowerCase() || '';
+  const numero_tel = document.querySelector('#reg-phone')?.value.trim() || '';
+  const password = document.querySelector('#reg-password')?.value || '';
+  const direccion = document.querySelector('#reg-address')?.value.trim() || null;
+
+  if (!nombre || !correo || !numero_tel || !password) {
+    setAccountFeedback('#register-feedback', 'Por favor completa todos los campos obligatorios (*): nombre, correo, teléfono y contraseña.', 'error');
     return;
   }
 
-  const gpu = builderSetup.get('GPU');
-  const cpu = builderSetup.get('CPU');
-  const psu = builderSetup.get('fuente de poder');
+  if (!isValidEmail(correo)) {
+    setAccountFeedback('#register-feedback', 'El formato del correo electrónico no es válido (ej. nombre@dominio.com).', 'error');
+    return;
+  }
 
-  let performanceLevel = 'Gama de Entrada / Oficina';
-  let recommendedWatts = 0;
-  const capabilities = [];
+  if (!isValidPhone(numero_tel)) {
+    setAccountFeedback('#register-feedback', 'Ingresa un número de teléfono válido (entre 7 y 15 dígitos).', 'error');
+    return;
+  }
 
-  const gpuName = gpu ? `${gpu.marca} ${gpu.modelo}`.toLowerCase() : '';
-  const isHighEnd = GPU_HIGH_END.some(key => gpuName.includes(key));
-  const isMidRange = !isHighEnd && GPU_MID_RANGE.some(key => gpuName.includes(key));
+  if (password.length < 6) {
+    setAccountFeedback('#register-feedback', 'La contraseña debe tener al menos 6 caracteres.', 'error');
+    return;
+  }
 
-  if (isHighEnd) {
-    performanceLevel = 'Gama Alta / Enthusiast';
-    recommendedWatts = 750;
-    capabilities.push('Gaming fluido en 4K Ultra (>90 FPS)');
-    capabilities.push('Edición de video 8K y Renderizado 3D pesado');
-    capabilities.push('Streaming profesional en simultáneo');
-  } else if (isMidRange) {
-    performanceLevel = 'Gama Media / Competitivo';
-    recommendedWatts = 550;
-    capabilities.push('Gaming en 1080p y 1440p en calidad Alta');
-    capabilities.push('Edición de video 4K y diseño gráfico avanzado');
-    capabilities.push('Juegos competitivos (Esports) a más de 144 FPS');
-  } else if (gpu) {
-    performanceLevel = 'Gama de Entrada Gamer';
-    recommendedWatts = 450;
-    capabilities.push('Gaming en 1080p en calidad Media');
-    capabilities.push('Multitarea fluida y edición fotográfica');
+  try {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Registrando...';
+    setAccountFeedback('#register-feedback', 'Validando disponibilidad del correo y guardando usuario...', 'info');
+
+    const { data: existing, error: checkError } = await supabase
+      .from('usuarios')
+      .select('id_usuario')
+      .eq('correo', correo)
+      .maybeSingle();
+
+    if (checkError) throw checkError;
+
+    if (existing) {
+      setAccountFeedback('#register-feedback', 'Este correo electrónico ya está registrado. Intenta iniciar sesión o usa otro correo.', 'error');
+      return;
+    }
+
+    const passwordHash = await hashPasswordSHA256(password);
+    const numCliente = `CLI-${Date.now().toString().slice(-6)}-${Math.floor(10 + Math.random() * 90)}`;
+
+    const { data: created, error: insertError } = await supabase
+      .from('usuarios')
+      .insert({
+        num_cliente: numCliente,
+        nombre,
+        correo,
+        numero_tel,
+        password_hash: passwordHash,
+        direccion,
+        rol: 'CLIENTE'
+      })
+      .select('id_usuario, num_cliente, nombre, correo, numero_tel, direccion, rol')
+      .single();
+
+    if (insertError) throw insertError;
+
+    saveUserSession(created);
+    document.querySelector('#register-form')?.reset();
+    setAccountFeedback('#register-feedback', `✓ Registro completado con éxito. ¡Bienvenido/a, ${created.nombre} (${created.num_cliente})!`, 'ok');
+  } catch (err) {
+    console.error('Error al registrar usuario:', err);
+    setAccountFeedback('#register-feedback', `No se pudo completar el registro: ${err.message || 'Verifica políticas RLS en usuarios.'}`, 'error');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = '✓ Crear cuenta';
+  }
+}
+
+async function handleLoginUser(event) {
+  event.preventDefault();
+  const submitBtn = document.querySelector('#login-submit-btn');
+
+  const correo = document.querySelector('#login-email')?.value.trim().toLowerCase() || '';
+  const password = document.querySelector('#login-password')?.value || '';
+
+  if (!correo || !password) {
+    setAccountFeedback('#login-feedback', 'Ingresa tu correo y contraseña.', 'error');
+    return;
+  }
+
+  if (!isValidEmail(correo)) {
+    setAccountFeedback('#login-feedback', 'El formato del correo electrónico no es válido.', 'error');
+    return;
+  }
+
+  try {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Verificando...';
+    setAccountFeedback('#login-feedback', 'Consultando cuenta...', 'info');
+
+    const passwordHash = await hashPasswordSHA256(password);
+
+    const { data: user, error } = await supabase
+      .from('usuarios')
+      .select('id_usuario, num_cliente, nombre, correo, numero_tel, direccion, rol, password_hash')
+      .eq('correo', correo)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!user || user.password_hash !== passwordHash) {
+      setAccountFeedback('#login-feedback', 'Correo o contraseña incorrectos.', 'error');
+      return;
+    }
+
+    const { password_hash, ...safeUser } = user;
+    saveUserSession({ ...safeUser, rol: safeUser.rol || 'CLIENTE' });
+    document.querySelector('#login-form')?.reset();
+    setAccountFeedback('#login-feedback', `✓ Sesión iniciada como ${safeUser.nombre}.`, 'ok');
+  } catch (err) {
+    console.error('Error al iniciar sesión:', err);
+    setAccountFeedback('#login-feedback', `Error al iniciar sesión: ${err.message}`, 'error');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = '→ Iniciar sesión';
+  }
+}
+
+async function loadUsersList() {
+  const listEl = document.querySelector('#users-list');
+  if (!listEl) return;
+
+  if (!isAdminUser()) {
+    listEl.innerHTML = '<p class="empty-cart" style="padding: 8px 0; font-size: 11px;">Acceso restringido a administradores.</p>';
+    return;
+  }
+
+  listEl.innerHTML = '<p class="empty-cart" style="padding: 8px 0; font-size: 11px;">Consultando usuarios...</p>';
+
+  try {
+    const { data, error } = await supabase
+      .from('usuarios')
+      .select('id_usuario, num_cliente, nombre, correo, numero_tel, direccion, rol')
+      .order('id_usuario', { ascending: false });
+
+    if (error) throw error;
+
+    allUsers = data || [];
+    renderUsersList();
+  } catch (err) {
+    console.error('Error al cargar usuarios:', err);
+    listEl.innerHTML = `<p class="empty-cart" style="padding: 8px 0; font-size: 11px; color: #dc2626;">Error al cargar usuarios: ${escapeHTML(err.message)}</p>`;
+  }
+}
+
+function renderUsersList() {
+  const listEl = document.querySelector('#users-list');
+  if (!listEl) return;
+
+  if (!isAdminUser()) {
+    listEl.innerHTML = '';
+    return;
+  }
+
+  const query = normalizeText(document.querySelector('#users-search')?.value || '');
+  const roleFilter = document.querySelector('#users-filter-role')?.value || 'TODOS';
+
+  const filtered = allUsers.filter(u => {
+    const role = String(u.rol || 'CLIENTE').toUpperCase();
+    const matchesRole = roleFilter === 'TODOS' || role === roleFilter;
+    const haystack = normalizeText(`${u.nombre || ''} ${u.correo || ''} ${u.num_cliente || ''}`);
+    const matchesQuery = !query || haystack.includes(query);
+    return matchesRole && matchesQuery;
+  });
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = '<p class="empty-cart" style="padding: 8px 0; font-size: 11px;">No hay usuarios con los filtros actuales.</p>';
+    return;
+  }
+
+  listEl.innerHTML = filtered.map(u => {
+    const role = String(u.rol || 'CLIENTE').toUpperCase();
+    const badgeStyle = role === 'ADMIN'
+      ? 'background:#dbeafe; color:#1e40af; border:1px solid #93c5fd;'
+      : 'background:#f1f5f9; color:#334155; border:1px solid #cbd5e1;';
+
+    return `
+      <div style="background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 9px; font-size: 11px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+          <strong style="color: #0f172a;">${escapeHTML(u.nombre || 'Sin nombre')}</strong>
+          <span style="padding: 1px 6px; border-radius: 999px; font-size: 9px; font-weight: 700; ${badgeStyle}">${escapeHTML(role)}</span>
+        </div>
+        <div style="color: #475569; margin-top: 2px;">${escapeHTML(u.correo || '')}${u.numero_tel ? ' · ' + escapeHTML(u.numero_tel) : ''}</div>
+        <small style="color: #64748b;">${escapeHTML(u.num_cliente || '')}</small>
+      </div>`;
+  }).join('');
+}
+
+async function handleAdminCreateUser(event) {
+  event.preventDefault();
+  if (!isAdminUser()) {
+    setAccountFeedback('#admin-user-feedback', 'Solo un administrador puede crear usuarios.', 'error');
+    return;
+  }
+
+  const submitBtn = document.querySelector('#admin-create-user-btn');
+  const rol = String(document.querySelector('#admin-user-role')?.value || 'CLIENTE').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'CLIENTE';
+  const nombre = document.querySelector('#admin-user-name')?.value.trim() || '';
+  const correo = document.querySelector('#admin-user-email')?.value.trim().toLowerCase() || '';
+  const numero_tel = document.querySelector('#admin-user-phone')?.value.trim() || '';
+  const password = document.querySelector('#admin-user-password')?.value || '';
+  const direccion = document.querySelector('#admin-user-address')?.value.trim() || null;
+
+  if (!nombre || !correo || !numero_tel || !password) {
+    setAccountFeedback('#admin-user-feedback', 'Completa nombre, correo, teléfono y contraseña.', 'error');
+    return;
+  }
+  if (!isValidEmail(correo)) {
+    setAccountFeedback('#admin-user-feedback', 'El formato del correo electrónico no es válido.', 'error');
+    return;
+  }
+  if (!isValidPhone(numero_tel)) {
+    setAccountFeedback('#admin-user-feedback', 'Ingresa un teléfono válido (7 a 15 dígitos).', 'error');
+    return;
+  }
+  if (password.length < 6) {
+    setAccountFeedback('#admin-user-feedback', 'La contraseña debe tener al menos 6 caracteres.', 'error');
+    return;
+  }
+
+  try {
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Creando...';
+    }
+    setAccountFeedback('#admin-user-feedback', 'Validando correo y guardando usuario...', 'info');
+
+    const { data: existing, error: checkError } = await supabase
+      .from('usuarios')
+      .select('id_usuario')
+      .eq('correo', correo)
+      .maybeSingle();
+
+    if (checkError) throw checkError;
+
+    if (existing) {
+      setAccountFeedback('#admin-user-feedback', 'Ese correo electrónico ya está registrado.', 'error');
+      return;
+    }
+
+    const passwordHash = await hashPasswordSHA256(password);
+    const numCliente = `CLI-${Date.now().toString().slice(-6)}-${Math.floor(10 + Math.random() * 90)}`;
+
+    const { data: created, error: insertError } = await supabase
+      .from('usuarios')
+      .insert({
+        num_cliente: numCliente,
+        nombre,
+        correo,
+        numero_tel,
+        password_hash: passwordHash,
+        direccion,
+        rol
+      })
+      .select('id_usuario, num_cliente, nombre, correo, numero_tel, direccion, rol')
+      .single();
+
+    if (insertError) throw insertError;
+
+    document.querySelector('#admin-create-user-form')?.reset();
+    setAccountFeedback('#admin-user-feedback', `✓ Usuario ${created.nombre} (${created.rol}) creado.`, 'ok');
+    await loadUsersList();
+  } catch (err) {
+    console.error('Error al crear usuario desde admin:', err);
+    setAccountFeedback('#admin-user-feedback', `Error al crear usuario: ${err.message}`, 'error');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '✓ Crear usuario';
+    }
+  }
+}
+
+async function handleUpdateProfile(event) {
+  event.preventDefault();
+  if (!currentUser?.id_usuario) return;
+
+  const submitBtn = document.querySelector('#save-profile-btn');
+  const numero_tel = document.querySelector('#profile-phone')?.value.trim() || '';
+  const direccion = document.querySelector('#profile-address')?.value.trim() || null;
+
+  if (!numero_tel) {
+    setAccountFeedback('#profile-edit-feedback', 'El número de teléfono es obligatorio.', 'error');
+    return;
+  }
+
+  if (!isValidPhone(numero_tel)) {
+    setAccountFeedback('#profile-edit-feedback', 'Ingresa un número de teléfono válido (entre 7 y 15 dígitos).', 'error');
+    return;
+  }
+
+  try {
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Guardando...';
+    }
+    setAccountFeedback('#profile-edit-feedback', 'Actualizando datos...', 'info');
+
+    const { data: updated, error } = await supabase
+      .from('usuarios')
+      .update({ numero_tel, direccion })
+      .eq('id_usuario', currentUser.id_usuario)
+      .select('id_usuario, num_cliente, nombre, correo, numero_tel, direccion, rol')
+      .single();
+
+    if (error) throw error;
+
+    saveUserSession(updated);
+
+    const salePhone = document.querySelector('#sale-phone');
+    const saleAddress = document.querySelector('#sale-address');
+    if (salePhone) salePhone.value = updated.numero_tel || '';
+    if (saleAddress) saleAddress.value = updated.direccion || '';
+
+    setAccountFeedback('#profile-edit-feedback', '✓ Datos actualizados correctamente.', 'ok');
+  } catch (err) {
+    console.error('Error al actualizar perfil:', err);
+    setAccountFeedback('#profile-edit-feedback', `No se pudieron guardar los cambios: ${err.message}`, 'error');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '✓ Guardar cambios';
+    }
+  }
+}
+
+async function handleChangePassword(event) {
+  event.preventDefault();
+  if (!currentUser?.id_usuario) return;
+
+  const submitBtn = document.querySelector('#save-password-btn');
+  const currentPassword = document.querySelector('#current-password')?.value || '';
+  const newPassword = document.querySelector('#new-password')?.value || '';
+  const confirmPassword = document.querySelector('#confirm-new-password')?.value || '';
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    setAccountFeedback('#password-change-feedback', 'Completa todos los campos de contraseña.', 'error');
+    return;
+  }
+
+  if (newPassword.length < 6) {
+    setAccountFeedback('#password-change-feedback', 'La nueva contraseña debe tener al menos 6 caracteres.', 'error');
+    return;
+  }
+
+  if (newPassword !== confirmPassword) {
+    setAccountFeedback('#password-change-feedback', 'La nueva contraseña y su confirmación no coinciden.', 'error');
+    return;
+  }
+
+  if (currentPassword === newPassword) {
+    setAccountFeedback('#password-change-feedback', 'La nueva contraseña debe ser diferente a la actual.', 'error');
+    return;
+  }
+
+  try {
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Verificando...';
+    }
+    setAccountFeedback('#password-change-feedback', 'Verificando contraseña actual...', 'info');
+
+    const currentHash = await hashPasswordSHA256(currentPassword);
+
+    const { data: userRow, error: fetchError } = await supabase
+      .from('usuarios')
+      .select('password_hash')
+      .eq('id_usuario', currentUser.id_usuario)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    if (!userRow || userRow.password_hash !== currentHash) {
+      setAccountFeedback('#password-change-feedback', 'La contraseña actual es incorrecta.', 'error');
+      return;
+    }
+
+    const newHash = await hashPasswordSHA256(newPassword);
+
+    const { error: updateError } = await supabase
+      .from('usuarios')
+      .update({ password_hash: newHash })
+      .eq('id_usuario', currentUser.id_usuario);
+
+    if (updateError) throw updateError;
+
+    document.querySelector('#password-change-form')?.reset();
+    setAccountFeedback('#password-change-feedback', '✓ Contraseña actualizada correctamente.', 'ok');
+  } catch (err) {
+    console.error('Error al cambiar contraseña:', err);
+    setAccountFeedback('#password-change-feedback', `No se pudo actualizar la contraseña: ${err.message}`, 'error');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '✓ Actualizar contraseña';
+    }
+  }
+}
+
+async function loadMySales() {
+  const listEl = document.querySelector('#my-sales-list');
+  if (!listEl) return;
+
+  if (!currentUser?.id_usuario) {
+    listEl.innerHTML = '';
+    return;
+  }
+
+  listEl.innerHTML = '<p class="empty-cart" style="padding: 10px 0; font-size: 11px;">Consultando tus compras...</p>';
+
+  try {
+    const { data, error } = await supabase
+      .from('ventas')
+      .select(`
+        id_venta,
+        folio_venta,
+        fecha_venta,
+        total,
+        estado,
+        detalle_venta (
+          cantidad,
+          precio_unitario,
+          componentes (
+            marca,
+            modelo
+          )
+        )
+      `)
+      .eq('id_usuario', currentUser.id_usuario)
+      .order('fecha_venta', { ascending: false });
+
+    if (error) throw error;
+
+    const mySales = data || [];
+    if (mySales.length === 0) {
+      listEl.innerHTML = '<p class="empty-cart" style="padding: 10px 0; font-size: 11px;">Aún no tienes compras registradas con esta cuenta.</p>';
+      return;
+    }
+
+    listEl.innerHTML = mySales.map(sale => {
+      const detalles = sale.detalle_venta || [];
+      const itemsHTML = detalles.map(det => {
+        const comp = det.componentes || {};
+        const subtotal = Number(det.cantidad) * Number(det.precio_unitario);
+        return `
+          <li style="display: flex; justify-content: space-between; font-size: 11px; padding: 3px 0; border-bottom: 1px dashed #e2e8f0;">
+            <span><strong>${escapeHTML(det.cantidad)}x</strong> ${escapeHTML(comp.marca || '')} ${escapeHTML(comp.modelo || 'Componente')}</span>
+            <span>${money.format(subtotal)}</span>
+          </li>`;
+      }).join('');
+
+      return `
+        <article style="background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 4px;">
+            <strong style="font-size: 11px; color: #0f172a;">${escapeHTML(sale.folio_venta)}</strong>
+            <span style="padding: 2px 6px; border-radius: 999px; font-size: 9px; font-weight: 700; ${saleStatusBadgeStyle(sale.estado)}">${escapeHTML(sale.estado)}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 11px; color: #475569; margin-bottom: 6px;">
+            <span>${formatDate(sale.fecha_venta)}</span>
+            <strong style="color: #0869e8;">${money.format(Number(sale.total || 0))} MXN</strong>
+          </div>
+          <details>
+            <summary style="cursor: pointer; font-size: 11px; font-weight: 600; color: #334155;">
+              Ver ${detalles.length} artículo(s)
+            </summary>
+            <ul style="list-style: none; padding: 4px 0 0; margin: 0;">
+              ${itemsHTML || '<li style="font-size: 11px; color: #64748b;">Sin detalle registrado.</li>'}
+            </ul>
+          </details>
+        </article>`;
+    }).join('');
+  } catch (err) {
+    console.error('Error al cargar compras del usuario:', err);
+    listEl.innerHTML = `<p class="empty-cart" style="padding: 10px 0; font-size: 11px; color: #dc2626;">Error al cargar tus compras: ${escapeHTML(err.message)}</p>`;
+  }
+}
+
+// ------------------------------------------------------------------
+// 11. Armador de PC (Drag & Drop + 3D + Resumen)
+// ------------------------------------------------------------------
+function slotPlaceholderText(slotType) {
+  const shortMap = {
+    'CPU': 'Arrastra CPU aquí',
+    'GPU': 'Arrastra GPU aquí',
+    'Motherboard': 'Arrastra Motherboard aquí',
+    'RAM': 'Arrastra RAM aquí',
+    'fuente de poder': 'Arrastra Fuente aquí',
+    'almacenamiento': 'Arrastra Disco aquí',
+    'gabinete': 'Arrastra Gabinete aquí',
+    'refrigeracion': 'Arrastra Cooler aquí'
+  };
+  return shortMap[slotType] || 'Arrastra aquí';
+}
+
+function setBuilderSlot(slotType, product) {
+  const slotEl = document.querySelector(`.drop-slot[data-slot="${slotType}"]`);
+  if (!slotEl) return;
+
+  const contentEl = slotEl.querySelector('.slot-content');
+  if (product) {
+    builderSetup.set(slotType, product);
+    slotEl.classList.add('filled');
+    contentEl.innerHTML = `
+      <div class="slotted-item">
+        <strong>${escapeHTML(product.marca)} ${escapeHTML(product.modelo)}</strong>
+        <button type="button" class="remove-slotted" data-remove-slot="${escapeHTML(slotType)}" title="Quitar">×</button>
+      </div>`;
   } else {
-    capabilities.push('Navegación web, tareas de oficina y reproducción multimedia HD.');
+    builderSetup.delete(slotType);
+    slotEl.classList.remove('filled');
+    contentEl.textContent = slotPlaceholderText(slotType);
   }
 
-  if (cpu) {
-    capabilities.push(`Procesador: ${escapeHTML(cpu.marca)} ${escapeHTML(cpu.modelo)}`);
+  update3DPiece(slotType, product || null);
+  updateBuilderSummary();
+}
+
+function handleDropOnSlot(slotType, productId) {
+  const product = products.find(p => String(p.id_componente) === String(productId));
+  if (!product) return;
+
+  if (canonicalType(product.tipo) !== canonicalType(slotType)) {
+    alert(`Este componente es de tipo "${product.tipo}" y no corresponde a la casilla "${slotType}".`);
+    return;
   }
 
-  let psuAdvice = '';
-  if (gpu && psu) {
-    const watts = getPsuWatts(psu);
-    if (watts && watts < recommendedWatts) {
-      psuAdvice = `<p class="warning-text">⚠️ <strong>Advertencia:</strong> la fuente seleccionada (${watts} W) está por debajo de los ${recommendedWatts} W recomendados para esta tarjeta gráfica.</p>`;
-    }
+  setBuilderSlot(slotType, product);
+}
+
+function updateBuilderSummary() {
+  const detailsEl = document.querySelector('#builder-details');
+  const totalEl = document.querySelector('#builder-total-price');
+  const items = [...builderSetup.values()];
+
+  const total = items.reduce((sum, p) => sum + Number(p.precio || 0), 0);
+  if (totalEl) totalEl.textContent = `${money.format(total)} MXN`;
+
+  if (!detailsEl) return;
+
+  if (items.length === 0) {
+    detailsEl.innerHTML = '<p class="empty-summary">Arrastra componentes hacia las casillas superiores para analizar las capacidades del equipo.</p>';
+    return;
   }
 
-  const missing = COMPONENT_TYPES.filter(t => !builderSetup.has(t.value)).map(t => t.short);
-  const missingHTML = missing.length
-    ? `<p class="missing-parts">Faltan: ${escapeHTML(missing.join(', '))}</p>`
-    : '<p class="complete-parts">✓ Configuración completa</p>';
+  const missing = COMPONENT_TYPES
+    .filter(t => !builderSetup.has(t.value))
+    .map(t => t.short);
 
-  detailsContainer.innerHTML = `
-    <span class="performance-badge">${performanceLevel}</span>
-    <p><strong>Capacidad estimada:</strong></p>
-    <ul style="padding-left: 18px; margin: 6px 0;">
-      ${capabilities.map(cap => `<li>${cap}</li>`).join('')}
-    </ul>
-    ${psuAdvice}
-    ${missingHTML}
-  `;
+  const hasCpu = builderSetup.has('CPU');
+  const hasGpu = builderSetup.has('GPU');
+  const profileBadge = hasCpu && hasGpu
+    ? '<span class="performance-badge">Perfil Gaming / Trabajo</span>'
+    : '<span class="performance-badge">Configuración en progreso</span>';
+
+  const statusLine = missing.length === 0
+    ? '<p class="complete-parts">✓ Equipo completo (8/8 componentes).</p>'
+    : `<p class="missing-parts">Faltan (${missing.length}): ${escapeHTML(missing.join(', '))}</p>`;
+
+  detailsEl.innerHTML = `
+    ${profileBadge}
+    <p>Componentes seleccionados: <strong>${items.length} / ${COMPONENT_TYPES.length}</strong></p>
+    ${statusLine}`;
+}
+
+function addBuilderToCart() {
+  const items = [...builderSetup.values()];
+  if (items.length === 0) {
+    alert('Primero agrega al menos un componente al armador de PC.');
+    return;
+  }
+
+  for (const product of items) {
+    addToCart(product.id_componente);
+  }
+
+  const cartDialog = document.querySelector('#cart-dialog');
+  if (cartDialog && !cartDialog.open) cartDialog.showModal();
 }
 
 // ------------------------------------------------------------------
-// 12. Búsqueda del catálogo
+// 12. Búsqueda y Eventos Globales
 // ------------------------------------------------------------------
-function runCatalogSearch() {
-  const query = normalizeText(document.querySelector('#search-input')?.value || '');
-  const filtered = query
-    ? products.filter(p => normalizeText(`${p.marca} ${p.modelo} ${p.tipo} ${p.descripcion || ''}`).includes(query))
-    : products;
-
-  renderProducts(filtered);
-
+function filterCatalog(term) {
+  const q = normalizeText(term);
   const statusEl = getStatusMessage();
+
+  if (!q) {
+    renderProducts(products);
+    if (statusEl && products.length) {
+      statusEl.textContent = `Catálogo cargado (${products.length} componentes disponibles).`;
+    }
+    return;
+  }
+
+  const matches = products.filter(p =>
+    normalizeText(`${p.marca} ${p.modelo} ${p.tipo} ${p.descripcion || ''}`).includes(q)
+  );
+
+  renderProducts(matches);
   if (statusEl) {
-    statusEl.textContent = query
-      ? `${filtered.length} resultado(s) para "${query}".`
-      : `Catálogo cargado (${products.length} componentes).`;
+    statusEl.textContent = matches.length
+      ? `Mostrando ${matches.length} resultado(s) para "${term}".`
+      : `Sin resultados para "${term}".`;
   }
 }
 
-// ------------------------------------------------------------------
-// 13. Event Listeners e Inicialización
-// ------------------------------------------------------------------
-function initApp() {
-  populateTypeSelects();
+function initEvents() {
+  const yearEl = document.querySelector('#year');
+  if (yearEl) yearEl.textContent = new Date().getFullYear();
 
-  // Un único listener de clics para todos los botones generados dinámicamente
   document.addEventListener('click', event => {
-    const addButton = event.target.closest('[data-add]');
-    if (addButton) {
-      addToCart(addButton.dataset.add);
+    const addBtn = event.target.closest('[data-add]');
+    if (addBtn) {
+      addToCart(addBtn.dataset.add);
       return;
     }
 
-    const cartButton = event.target.closest('[data-cart-action]');
-    if (cartButton) {
-      handleCartAction(cartButton.dataset.cartAction, cartButton.dataset.id);
+    const cartBtn = event.target.closest('[data-cart-action]');
+    if (cartBtn) {
+      handleCartAction(cartBtn.dataset.cartAction, cartBtn.dataset.id);
       return;
     }
 
-    const removeSlotButton = event.target.closest('[data-remove-slot]');
-    if (removeSlotButton) {
-      removeSlotItem(removeSlotButton.dataset.removeSlot);
+    const removeSlotBtn = event.target.closest('[data-remove-slot]');
+    if (removeSlotBtn) {
+      setBuilderSlot(removeSlotBtn.dataset.removeSlot, null);
       return;
     }
 
-    const saleButton = event.target.closest('[data-sale-status]');
-    if (saleButton) {
-      updateSaleStatus(saleButton.dataset.saleId, saleButton.dataset.saleStatus);
+    const saleStatusBtn = event.target.closest('[data-sale-id][data-sale-status]');
+    if (saleStatusBtn) {
+      updateSaleStatus(saleStatusBtn.dataset.saleId, saleStatusBtn.dataset.saleStatus);
       return;
     }
 
-    const inventorySaveButton = event.target.closest('[data-inv-save]');
-    if (inventorySaveButton) {
-      saveInventoryRow(inventorySaveButton.dataset.invSave, inventorySaveButton.closest('tr'), inventorySaveButton);
+    const invSaveBtn = event.target.closest('[data-inv-save]');
+    if (invSaveBtn) {
+      const row = invSaveBtn.closest('tr');
+      saveInventoryRow(invSaveBtn.dataset.invSave, row, invSaveBtn);
     }
   });
 
-  // Búsqueda
-  document.querySelector('#search-form')?.addEventListener('submit', event => {
-    event.preventDefault();
-    runCatalogSearch();
+  document.addEventListener('dragstart', event => {
+    const card = event.target.closest('.product-card[draggable="true"]');
+    if (!card) return;
+    event.dataTransfer.setData('text/plain', card.dataset.dragId);
+    event.dataTransfer.effectAllowed = 'copy';
   });
-  document.querySelector('#search-input')?.addEventListener('input', runCatalogSearch);
+
+  document.querySelectorAll('.drop-slot').forEach(slot => {
+    slot.addEventListener('dragover', event => {
+      event.preventDefault();
+      slot.classList.add('drag-over');
+    });
+    slot.addEventListener('dragleave', () => {
+      slot.classList.remove('drag-over');
+    });
+    slot.addEventListener('drop', event => {
+      event.preventDefault();
+      slot.classList.remove('drag-over');
+      const productId = event.dataTransfer.getData('text/plain');
+      if (productId) handleDropOnSlot(slot.dataset.slot, productId);
+    });
+  });
+
+  document.querySelector('#add-builder-to-cart')?.addEventListener('click', addBuilderToCart);
+
+  const searchForm = document.querySelector('#search-form');
+  const searchInput = document.querySelector('#search-input');
+  searchForm?.addEventListener('submit', e => {
+    e.preventDefault();
+    filterCatalog(searchInput?.value || '');
+  });
+  searchInput?.addEventListener('input', e => {
+    filterCatalog(e.target.value);
+  });
 
   // Carrito
-  document.querySelector('#cart-button')?.addEventListener('click', () => {
-    const feedbackEl = document.querySelector('#sale-feedback');
-    if (feedbackEl) feedbackEl.textContent = '';
-    updateCartUI();
-    document.querySelector('#cart-dialog')?.showModal();
-  });
-
+  const cartDialog = document.querySelector('#cart-dialog');
+  document.querySelector('#cart-button')?.addEventListener('click', () => cartDialog?.showModal());
   document.querySelector('#close-cart')?.addEventListener('click', () => {
-    document.querySelector('#cart-dialog')?.close();
+    resetClearCartButton();
+    cartDialog?.close();
   });
-
+  document.querySelector('#clear-cart-btn')?.addEventListener('click', clearCart);
   document.querySelector('#checkout-form')?.addEventListener('submit', handleRegisterSale);
 
-  // Ventas
-  document.querySelector('#open-sales-btn')?.addEventListener('click', async () => {
-    document.querySelector('#sales-dialog')?.showModal();
-    await loadSales();
+  // Ventas (solo ADMIN)
+  const salesDialog = document.querySelector('#sales-dialog');
+  document.querySelector('#open-sales-btn')?.addEventListener('click', () => {
+    if (!isAdminUser()) return;
+    salesDialog?.showModal();
+    loadSales();
   });
-
-  document.querySelector('#close-sales')?.addEventListener('click', () => {
-    document.querySelector('#sales-dialog')?.close();
-  });
-
+  document.querySelector('#close-sales')?.addEventListener('click', () => salesDialog?.close());
   document.querySelector('#refresh-sales-btn')?.addEventListener('click', loadSales);
   document.querySelector('#sales-search')?.addEventListener('input', renderSalesList);
   document.querySelector('#sales-filter-status')?.addEventListener('change', renderSalesList);
 
-  // Inventario
-  document.querySelector('#open-inventory-btn')?.addEventListener('click', async () => {
-    setInventoryFeedback('');
-    document.querySelector('#inventory-dialog')?.showModal();
-    await loadInventory();
+  // Inventario (solo ADMIN)
+  const invDialog = document.querySelector('#inventory-dialog');
+  document.querySelector('#open-inventory-btn')?.addEventListener('click', () => {
+    if (!isAdminUser()) return;
+    invDialog?.showModal();
+    loadInventory();
   });
-
-  document.querySelector('#close-inventory')?.addEventListener('click', () => {
-    document.querySelector('#inventory-dialog')?.close();
-  });
-
+  document.querySelector('#close-inventory')?.addEventListener('click', () => invDialog?.close());
   document.querySelector('#refresh-inventory-btn')?.addEventListener('click', loadInventory);
   document.querySelector('#inventory-search')?.addEventListener('input', renderInventory);
   document.querySelector('#inventory-filter-type')?.addEventListener('change', renderInventory);
   document.querySelector('#inventory-only-low')?.addEventListener('change', renderInventory);
   document.querySelector('#product-form')?.addEventListener('submit', handleCreateProduct);
 
-  // Armador
-  document.querySelector('#add-builder-to-cart')?.addEventListener('click', () => {
-    if (builderSetup.size === 0) {
-      alert('Arrastra al menos un componente a las casillas antes de agregar el setup al carrito.');
-      return;
+  // Cuenta de usuario
+  const accountDialog = document.querySelector('#account-dialog');
+  document.querySelector('#open-account-btn')?.addEventListener('click', () => {
+    if (currentUser) {
+      loadMySales();
+      if (isAdminUser()) loadUsersList();
+    } else {
+      switchAccountTab('register');
     }
-    builderSetup.forEach(product => {
-      addToCart(product.id_componente);
-    });
-    alert('Se han agregado todos los componentes seleccionados de tu setup al carrito.');
+    accountDialog?.showModal();
   });
-
-  const yearEl = document.querySelector('#year');
-  if (yearEl) yearEl.textContent = new Date().getFullYear();
-
-  setupDragAndDrop();
-  init3DCase('case-3d-container');
-  loadProducts();
+  document.querySelector('#close-account')?.addEventListener('click', () => accountDialog?.close());
+  document.querySelector('#tab-register-btn')?.addEventListener('click', () => switchAccountTab('register'));
+  document.querySelector('#tab-login-btn')?.addEventListener('click', () => switchAccountTab('login'));
+  document.querySelector('#register-form')?.addEventListener('submit', handleRegisterUser);
+  document.querySelector('#login-form')?.addEventListener('submit', handleLoginUser);
+  document.querySelector('#profile-edit-form')?.addEventListener('submit', handleUpdateProfile);
+  document.querySelector('#password-change-form')?.addEventListener('submit', handleChangePassword);
+  document.querySelector('#refresh-my-sales-btn')?.addEventListener('click', loadMySales);
+  document.querySelector('#admin-create-user-form')?.addEventListener('submit', handleAdminCreateUser);
+  document.querySelector('#refresh-users-btn')?.addEventListener('click', loadUsersList);
+  document.querySelector('#users-search')?.addEventListener('input', renderUsersList);
+  document.querySelector('#users-filter-role')?.addEventListener('change', renderUsersList);
+  document.querySelector('#logout-btn')?.addEventListener('click', () => {
+    saveUserSession(null);
+    setAccountFeedback('#register-feedback', 'Sesión cerrada.', 'info');
+  });
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initApp);
-} else {
-  initApp();
-}
+// ------------------------------------------------------------------
+// 13. Arranque
+// ------------------------------------------------------------------
+populateTypeSelects();
+updateCartUI();
+updateBuilderSummary();
+initEvents();
+restoreUserSession();
+init3DCase('case-3d-container');
+loadProducts();
