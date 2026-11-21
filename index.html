@@ -29,17 +29,17 @@
     </form>
 
     <div class="header-actions">
-      <button class="account-action" id="open-inventory-btn" type="button" aria-label="Ver inventario">
+      <button class="account-action" id="open-inventory-btn" type="button" aria-label="Ver inventario" style="display: none;">
         <span class="action-icon">📦</span>
         <span><strong>Inventario</strong><small>Productos y stock</small></span>
       </button>
-      <button class="account-action" id="open-sales-btn" type="button" aria-label="Ver ventas">
+      <button class="account-action" id="open-sales-btn" type="button" aria-label="Ver ventas" style="display: none;">
         <span class="action-icon">📋</span>
         <span><strong>Ventas</strong><small>Historial</small></span>
       </button>
-      <button class="account-action" type="button" aria-label="Mi cuenta">
+      <button class="account-action" id="open-account-btn" type="button" aria-label="Mi cuenta">
         <span class="action-icon">♙</span>
-        <span><strong>Mi cuenta</strong><small>Iniciar sesión</small></span>
+        <span><strong id="account-label">Mi cuenta</strong><small id="account-sublabel">Iniciar sesión</small></span>
       </button>
       <button class="cart-action" id="cart-button" type="button" aria-label="Ver carrito">
         <span class="action-icon">🛒</span>
@@ -214,6 +214,12 @@
     </div>
 
     <div id="cart-items" class="cart-items"></div>
+
+    <div style="display: flex; justify-content: flex-end; margin-bottom: 10px;">
+      <button type="button" id="clear-cart-btn" class="remove-button" style="font-size: 12px;">
+        🗑 Vaciar carrito
+      </button>
+    </div>
 
     <div class="dialog-total">
       <strong>Total</strong>
@@ -434,6 +440,219 @@
           <tr><td colspan="5" class="empty-cart">Cargando inventario...</td></tr>
         </tbody>
       </table>
+    </div>
+  </dialog>
+
+  <!-- Modal Mi cuenta: Registro, Inicio de sesión, Perfil, Compras y Panel Admin -->
+  <dialog id="account-dialog" class="cart-dialog" style="width: min(460px, calc(100% - 28px));">
+    <div class="dialog-heading">
+      <h2 id="account-dialog-title">Registro de usuario</h2>
+      <button id="close-account" type="button" aria-label="Cerrar">×</button>
+    </div>
+
+    <div id="account-auth-box">
+      <p id="account-guide" style="margin: 8px 0 12px; font-size: 12px; color: #475569; line-height: 1.45;">
+        Completa tus datos para crear tu cuenta en Tecnoli. Todos los campos marcados con * son obligatorios.
+      </p>
+
+      <div style="display: flex; gap: 8px; margin-bottom: 14px;">
+        <button type="button" id="tab-register-btn" class="primary-button" style="flex: 1; justify-content: center; padding: 8px 12px;">
+          Registrarse
+        </button>
+        <button type="button" id="tab-login-btn" class="small-button" style="flex: 1; padding: 8px 12px; background: #e2e8f0; color: #0f172a;">
+          Iniciar sesión
+        </button>
+      </div>
+
+      <!-- Formulario de Registro (Cliente) -->
+      <form id="register-form" novalidate style="display: flex; flex-direction: column; gap: 10px;">
+        <label style="display: flex; flex-direction: column; font-size: 12px; gap: 4px;">
+          <span>Nombre completo *</span>
+          <input type="text" id="reg-name" required placeholder="Ej. Ana María López" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;" />
+          <small style="color: #64748b; font-size: 11px;">Escribe tu nombre y apellido.</small>
+        </label>
+
+        <label style="display: flex; flex-direction: column; font-size: 12px; gap: 4px;">
+          <span>Correo electrónico *</span>
+          <input type="email" id="reg-email" required placeholder="ana@ejemplo.com" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;" />
+          <small style="color: #64748b; font-size: 11px;">Debe tener un formato válido (ej. usuario@dominio.com).</small>
+        </label>
+
+        <label style="display: flex; flex-direction: column; font-size: 12px; gap: 4px;">
+          <span>Número de teléfono *</span>
+          <input type="tel" id="reg-phone" required placeholder="Ej. 3312345678" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;" />
+          <small style="color: #64748b; font-size: 11px;">Ingresa entre 7 y 15 dígitos.</small>
+        </label>
+
+        <label style="display: flex; flex-direction: column; font-size: 12px; gap: 4px;">
+          <span>Contraseña *</span>
+          <input type="password" id="reg-password" required minlength="6" placeholder="Mínimo 6 caracteres" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;" />
+          <small style="color: #64748b; font-size: 11px;">Se guardará encriptada con SHA-256.</small>
+        </label>
+
+        <label style="display: flex; flex-direction: column; font-size: 12px; gap: 4px;">
+          <span>Dirección de entrega (opcional)</span>
+          <input type="text" id="reg-address" placeholder="Calle, número, colonia o ciudad" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;" />
+        </label>
+
+        <p id="register-feedback" role="status" style="margin: 2px 0; font-size: 12px; font-weight: 600;"></p>
+
+        <button type="submit" id="register-submit-btn" class="primary-button" style="width: 100%; justify-content: center; margin-top: 4px;">
+          ✓ Crear cuenta
+        </button>
+      </form>
+
+      <!-- Formulario de Inicio de sesión -->
+      <form id="login-form" novalidate style="display: none; flex-direction: column; gap: 10px;">
+        <label style="display: flex; flex-direction: column; font-size: 12px; gap: 4px;">
+          <span>Correo electrónico *</span>
+          <input type="email" id="login-email" required placeholder="ana@ejemplo.com" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;" />
+        </label>
+
+        <label style="display: flex; flex-direction: column; font-size: 12px; gap: 4px;">
+          <span>Contraseña *</span>
+          <input type="password" id="login-password" required placeholder="Tu contraseña" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;" />
+        </label>
+
+        <p id="login-feedback" role="status" style="margin: 2px 0; font-size: 12px; font-weight: 600;"></p>
+
+        <button type="submit" id="login-submit-btn" class="primary-button" style="width: 100%; justify-content: center; margin-top: 4px;">
+          → Iniciar sesión
+        </button>
+      </form>
+    </div>
+
+    <!-- Sesión activa -->
+    <div id="account-session-box" style="display: none; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-top: 8px;">
+      <p style="margin: 0 0 4px; font-size: 13px;">Sesión iniciada como: <strong id="session-user-name"></strong></p>
+      <p style="margin: 0 0 10px; font-size: 12px; color: #475569;" id="session-user-email"></p>
+
+      <form id="profile-edit-form" style="display: flex; flex-direction: column; gap: 8px; margin: 10px 0; border-top: 1px solid #e2e8f0; padding-top: 10px;">
+        <strong style="font-size: 12px; color: #0f172a;">Datos de contacto y entrega</strong>
+
+        <label style="display: flex; flex-direction: column; font-size: 11px; gap: 3px;">
+          <span>Teléfono *</span>
+          <input type="tel" id="profile-phone" required placeholder="Ej. 3312345678" style="padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: #fff;" />
+        </label>
+
+        <label style="display: flex; flex-direction: column; font-size: 11px; gap: 3px;">
+          <span>Dirección de entrega</span>
+          <input type="text" id="profile-address" placeholder="Calle, número, colonia o ciudad" style="padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: #fff;" />
+        </label>
+
+        <p id="profile-edit-feedback" role="status" style="margin: 0; font-size: 11px; font-weight: 600;"></p>
+
+        <button type="submit" id="save-profile-btn" class="small-button" style="align-self: flex-start; padding: 6px 12px;">
+          ✓ Guardar cambios
+        </button>
+      </form>
+
+      <details id="password-change-details" style="margin: 10px 0; border-top: 1px solid #e2e8f0; padding-top: 10px;">
+        <summary style="cursor: pointer; font-size: 12px; font-weight: 700; color: #0869e8;">
+          🔒 Cambiar contraseña
+        </summary>
+        <form id="password-change-form" novalidate style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+          <label style="display: flex; flex-direction: column; font-size: 11px; gap: 3px;">
+            <span>Contraseña actual *</span>
+            <input type="password" id="current-password" required placeholder="Ingresa tu contraseña actual" style="padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: #fff;" />
+          </label>
+
+          <label style="display: flex; flex-direction: column; font-size: 11px; gap: 3px;">
+            <span>Nueva contraseña *</span>
+            <input type="password" id="new-password" required minlength="6" placeholder="Mínimo 6 caracteres" style="padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: #fff;" />
+          </label>
+
+          <label style="display: flex; flex-direction: column; font-size: 11px; gap: 3px;">
+            <span>Confirmar nueva contraseña *</span>
+            <input type="password" id="confirm-new-password" required minlength="6" placeholder="Repite la nueva contraseña" style="padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: #fff;" />
+          </label>
+
+          <p id="password-change-feedback" role="status" style="margin: 0; font-size: 11px; font-weight: 600;"></p>
+
+          <button type="submit" id="save-password-btn" class="small-button" style="align-self: flex-start; padding: 6px 12px;">
+            ✓ Actualizar contraseña
+          </button>
+        </form>
+      </details>
+
+      <div style="margin: 12px 0; border-top: 1px solid #e2e8f0; padding-top: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <strong style="font-size: 12px; color: #0f172a;">Mis compras recientes</strong>
+          <button type="button" id="refresh-my-sales-btn" class="small-button" style="padding: 4px 8px; font-size: 10px;">↻ Actualizar</button>
+        </div>
+        <div id="my-sales-list" style="max-height: 210px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+          <p class="empty-cart" style="padding: 10px 0; font-size: 11px;">Cargando tus compras...</p>
+        </div>
+      </div>
+
+      <!-- Panel exclusivo para usuarios ADMIN -->
+      <div id="admin-users-panel" style="display: none; margin: 12px 0; border-top: 1px solid #e2e8f0; padding-top: 10px;">
+        <strong style="display: block; font-size: 12px; color: #0f172a; margin-bottom: 8px;">
+          Administración de usuarios
+        </strong>
+
+        <details style="margin-bottom: 10px; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px;">
+          <summary style="cursor: pointer; font-size: 12px; font-weight: 700; color: #0869e8;">
+            ＋ Registrar usuario (Admin / Cliente)
+          </summary>
+          <form id="admin-create-user-form" novalidate style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+            <label style="display: flex; flex-direction: column; font-size: 11px; gap: 3px;">
+              <span>Rol del usuario *</span>
+              <select id="admin-user-role" required style="padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: #fff;">
+                <option value="CLIENTE">CLIENTE</option>
+                <option value="ADMIN">ADMIN</option>
+              </select>
+            </label>
+
+            <label style="display: flex; flex-direction: column; font-size: 11px; gap: 3px;">
+              <span>Nombre completo *</span>
+              <input type="text" id="admin-user-name" required placeholder="Ej. Carlos Gómez" style="padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: #fff;" />
+            </label>
+
+            <label style="display: flex; flex-direction: column; font-size: 11px; gap: 3px;">
+              <span>Correo electrónico *</span>
+              <input type="email" id="admin-user-email" required placeholder="carlos@tecnoli.com" style="padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: #fff;" />
+            </label>
+
+            <label style="display: flex; flex-direction: column; font-size: 11px; gap: 3px;">
+              <span>Teléfono *</span>
+              <input type="tel" id="admin-user-phone" required placeholder="Ej. 3312345678" style="padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: #fff;" />
+            </label>
+
+            <label style="display: flex; flex-direction: column; font-size: 11px; gap: 3px;">
+              <span>Contraseña *</span>
+              <input type="password" id="admin-user-password" required minlength="6" placeholder="Mínimo 6 caracteres" style="padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: #fff;" />
+            </label>
+
+            <label style="display: flex; flex-direction: column; font-size: 11px; gap: 3px;">
+              <span>Dirección (opcional)</span>
+              <input type="text" id="admin-user-address" placeholder="Calle, número, ciudad" style="padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: #fff;" />
+            </label>
+
+            <p id="admin-user-feedback" role="status" style="margin: 0; font-size: 11px; font-weight: 600;"></p>
+
+            <button type="submit" id="admin-create-user-btn" class="small-button" style="align-self: flex-start; padding: 6px 12px;">
+              ✓ Crear usuario
+            </button>
+          </form>
+        </details>
+
+        <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+          <input type="search" id="users-search" placeholder="Buscar usuario por nombre o correo..." style="flex: 1; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11px; background: #fff;" />
+          <select id="users-filter-role" style="padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11px; background: #fff;">
+            <option value="TODOS">Todos</option>
+            <option value="ADMIN">ADMIN</option>
+            <option value="CLIENTE">CLIENTE</option>
+          </select>
+          <button type="button" id="refresh-users-btn" class="small-button" style="padding: 6px 8px; font-size: 10px;">↻</button>
+        </div>
+
+        <div id="users-list" style="max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;">
+          <p class="empty-cart" style="padding: 8px 0; font-size: 11px;">Cargando usuarios...</p>
+        </div>
+      </div>
+
+      <button type="button" id="logout-btn" class="small-button" style="background: #dc2626;">Cerrar sesión</button>
     </div>
   </dialog>
 </body>
