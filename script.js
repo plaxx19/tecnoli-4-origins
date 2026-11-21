@@ -40,6 +40,42 @@ const COMPONENT_TYPES = [
 
 const TYPE_ALIASES = { procesador: 'cpu', procesadores: 'cpu' };
 
+// Métodos de pago disponibles y mensajes de orientación para el usuario
+const PAYMENT_METHODS = {
+  TARJETA: {
+    code: 'TARJETA',
+    label: 'Tarjeta Crédito / Débito',
+    shortLabel: 'Tarjeta',
+    icon: '💳',
+    suggestedStatus: 'PAGADA',
+    guidance: '💳 Pago con tarjeta seleccionado: Aprobación inmediata con Visa, Mastercard o AMEX. Estado sugerido: PAGADA.'
+  },
+  TRANSFERENCIA: {
+    code: 'TRANSFERENCIA',
+    label: 'Transferencia SPEI',
+    shortLabel: 'SPEI',
+    icon: '🏦',
+    suggestedStatus: 'PENDIENTE',
+    guidance: '🏦 Transferencia SPEI seleccionada: El pedido quedará reservado en espera de validar tu comprobante bancario. Estado sugerido: PENDIENTE.'
+  },
+  PAYPAL: {
+    code: 'PAYPAL',
+    label: 'PayPal / Billetera Digital',
+    shortLabel: 'PayPal',
+    icon: '🅿️',
+    suggestedStatus: 'PAGADA',
+    guidance: '🅿️ PayPal seleccionado: Confirmación automática mediante tu cuenta vinculada con protección al comprador. Estado sugerido: PAGADA.'
+  },
+  EFECTIVO: {
+    code: 'EFECTIVO',
+    label: 'Efectivo / Pago en Tienda',
+    shortLabel: 'Efectivo',
+    icon: '💵',
+    suggestedStatus: 'PENDIENTE',
+    guidance: '💵 Pago en efectivo seleccionado: Liquida el total directamente en sucursal o contra entrega. Estado sugerido: PENDIENTE.'
+  }
+};
+
 let products = [];
 let inventory = [];
 let allSales = [];
@@ -47,6 +83,7 @@ let allUsers = [];
 let currentUser = null;
 let clearCartConfirmTimer = null;
 
+let selectedPaymentMethod = '';
 const cart = new Map();
 const builderSetup = new Map();
 
@@ -103,6 +140,17 @@ function formatDate(isoString) {
     dateStyle: 'medium',
     timeStyle: 'short'
   }).format(new Date(isoString));
+}
+
+function getPaymentMethodMeta(rawMethod) {
+  if (!rawMethod) return null;
+  const key = String(rawMethod).trim().toUpperCase();
+  return PAYMENT_METHODS[key] || {
+    code: key,
+    label: String(rawMethod),
+    shortLabel: String(rawMethod),
+    icon: '💳'
+  };
 }
 
 function productImage(product) {
@@ -372,7 +420,7 @@ async function loadProducts() {
 }
 
 // ------------------------------------------------------------------
-// 7. Manejo del Carrito de Compras y Registro de Venta
+// 7. Manejo del Carrito, Selección de Pago y Registro de Venta
 // ------------------------------------------------------------------
 function saveCartToStorage() {
   try {
@@ -545,6 +593,48 @@ function updateCartUI() {
   }
 }
 
+function selectPaymentMethod(methodCode) {
+  const methodInfo = PAYMENT_METHODS[methodCode] || null;
+  selectedPaymentMethod = methodInfo ? methodInfo.code : '';
+
+  document.querySelectorAll('.payment-option').forEach(option => {
+    const isMatch = option.dataset.method === selectedPaymentMethod;
+    option.classList.toggle('selected', isMatch);
+    const radio = option.querySelector('input[type="radio"]');
+    if (radio) radio.checked = isMatch;
+  });
+
+  const guidanceEl = document.querySelector('#payment-guidance');
+  const statusSelect = document.querySelector('#sale-status');
+
+  if (methodInfo) {
+    if (guidanceEl) {
+      guidanceEl.className = 'payment-guidance selected';
+      guidanceEl.textContent = methodInfo.guidance;
+    }
+    if (statusSelect && methodInfo.suggestedStatus) {
+      statusSelect.value = methodInfo.suggestedStatus;
+    }
+  } else if (guidanceEl) {
+    guidanceEl.className = 'payment-guidance info';
+    guidanceEl.textContent = 'ℹ️ Selecciona una forma de pago para continuar con tu compra.';
+  }
+}
+
+function resetPaymentSelection() {
+  selectedPaymentMethod = '';
+  document.querySelectorAll('.payment-option').forEach(option => {
+    option.classList.remove('selected');
+    const radio = option.querySelector('input[type="radio"]');
+    if (radio) radio.checked = false;
+  });
+  const guidanceEl = document.querySelector('#payment-guidance');
+  if (guidanceEl) {
+    guidanceEl.className = 'payment-guidance info';
+    guidanceEl.textContent = 'ℹ️ Selecciona una forma de pago para continuar con tu compra.';
+  }
+}
+
 async function resolveOrCreateUsuario({ correo, nombre, numero_tel, direccion }) {
   const { data: existingUser, error: findError } = await supabase
     .from('usuarios')
@@ -574,9 +664,29 @@ async function resolveOrCreateUsuario({ correo, nombre, numero_tel, direccion })
   return newUser.id_usuario;
 }
 
+async function insertVentaRecord({ idUsuario, folioVenta, total, estado, metodoPago }) {
+  async function insertVentaRecord({ idUsuario, folioVenta, total, estado, metodoPago }) {
+    const { data, error } = await supabase
+      .from('ventas')
+      .insert({
+        id_usuario: idUsuario,
+        folio_venta: folioVenta,
+        total,
+        estado,
+        metodo_pago: metodoPago
+      })
+      .select('id_venta, folio_venta, metodo_pago')
+      .single();
+  
+    if (error) throw error;
+    return data;
+  }
+}
+
 async function handleRegisterSale(event) {
   event.preventDefault();
   const feedbackEl = document.querySelector('#sale-feedback');
+  const guidanceEl = document.querySelector('#payment-guidance');
   const submitBtn = document.querySelector('#register-sale-btn');
 
   if (cart.size === 0) {
@@ -587,6 +697,20 @@ async function handleRegisterSale(event) {
     return;
   }
 
+  if (!selectedPaymentMethod || !PAYMENT_METHODS[selectedPaymentMethod]) {
+    if (guidanceEl) {
+      guidanceEl.className = 'payment-guidance error';
+      guidanceEl.textContent = '⚠️ Por favor elige una forma de pago (Tarjeta, Transferencia, PayPal o Efectivo) para completar tu compra.';
+    }
+    if (feedbackEl) {
+      feedbackEl.style.color = '#dc2626';
+      feedbackEl.textContent = 'Debes seleccionar un método de pago antes de registrar la venta.';
+    }
+    document.querySelector('.payment-option input[type="radio"]')?.focus();
+    return;
+  }
+
+  const paymentMethodObj = PAYMENT_METHODS[selectedPaymentMethod];
   const correo = document.querySelector('#sale-email').value.trim();
   const nombre = document.querySelector('#sale-name').value.trim();
   const numero_tel = document.querySelector('#sale-phone').value.trim();
@@ -602,23 +726,18 @@ async function handleRegisterSale(event) {
     submitBtn.textContent = 'Registrando venta...';
     if (feedbackEl) {
       feedbackEl.style.color = '#0869e8';
-      feedbackEl.textContent = 'Procesando operación en Supabase...';
+      feedbackEl.textContent = `Procesando pago con ${paymentMethodObj.label} en Supabase...`;
     }
 
     const idUsuario = await resolveOrCreateUsuario({ correo, nombre, numero_tel, direccion });
 
-    const { data: venta, error: ventaError } = await supabase
-      .from('ventas')
-      .insert({
-        id_usuario: idUsuario,
-        folio_venta: folioVenta,
-        total,
-        estado
-      })
-      .select('id_venta, folio_venta')
-      .single();
-
-    if (ventaError) throw ventaError;
+    const venta = await insertVentaRecord({
+      idUsuario,
+      folioVenta,
+      total,
+      estado,
+      metodoPago: paymentMethodObj.code
+    });
 
     for (const { product, quantity } of entries) {
       const { data: detalle, error: detalleError } = await supabase
@@ -671,10 +790,11 @@ async function handleRegisterSale(event) {
     saveCartToStorage();
     updateCartUI();
     document.querySelector('#checkout-form').reset();
+    resetPaymentSelection();
 
     if (feedbackEl) {
       feedbackEl.style.color = '#16a34a';
-      feedbackEl.textContent = `✓ Venta registrada con folio: ${venta.folio_venta}`;
+      feedbackEl.textContent = `✓ Venta registrada con folio: ${venta.folio_venta} (${paymentMethodObj.label})`;
     }
 
     await loadProducts();
@@ -710,16 +830,13 @@ async function loadSales() {
     const { data, error } = await supabase
       .from('ventas')
       .select(`
-        id_venta,
-        folio_venta,
-        fecha_venta,
-        total,
-        estado,
+        *,
         usuarios (
           num_cliente,
           nombre,
           correo,
-          numero_tel
+          numero_tel,
+          direccion
         ),
         detalle_venta (
           id_detalle,
@@ -758,6 +875,7 @@ function saleStatusBadgeStyle(estado) {
 function renderSalesList() {
   const listEl = document.querySelector('#sales-list');
   const countEl = document.querySelector('#sales-count');
+  const breakdownEl = document.querySelector('#sales-payment-breakdown');
   const grandTotalEl = document.querySelector('#sales-grand-total');
   if (!listEl) return;
 
@@ -768,21 +886,36 @@ function renderSalesList() {
 
   const query = normalizeText(document.querySelector('#sales-search')?.value || '');
   const statusFilter = document.querySelector('#sales-filter-status')?.value || 'TODOS';
+  const paymentFilter = document.querySelector('#sales-filter-payment')?.value || 'TODOS';
 
   const filtered = allSales.filter(sale => {
     const matchesStatus = statusFilter === 'TODOS' || sale.estado === statusFilter;
+    const saleMethod = String(sale.metodo_pago || '').trim().toUpperCase();
+    const matchesPayment = paymentFilter === 'TODOS' || saleMethod === paymentFilter;
     const clientName = normalizeText(sale.usuarios?.nombre || '');
     const clientEmail = normalizeText(sale.usuarios?.correo || '');
     const folio = normalizeText(sale.folio_venta || '');
-    const matchesQuery = !query || folio.includes(query) || clientName.includes(query) || clientEmail.includes(query);
-    return matchesStatus && matchesQuery;
+    const paymentLabel = normalizeText(getPaymentMethodMeta(sale.metodo_pago)?.label || '');
+    const matchesQuery = !query || folio.includes(query) || clientName.includes(query) || clientEmail.includes(query) || paymentLabel.includes(query);
+    return matchesStatus && matchesPayment && matchesQuery;
   });
 
-  const sumTotal = filtered
-    .filter(s => s.estado !== 'CANCELADA')
-    .reduce((acc, s) => acc + Number(s.total || 0), 0);
+  const activeSales = filtered.filter(s => s.estado !== 'CANCELADA');
+  const sumTotal = activeSales.reduce((acc, s) => acc + Number(s.total || 0), 0);
+
+  // Desglose por método de pago en el historial mostrado
+  const methodCounts = {};
+  activeSales.forEach(sale => {
+    const meta = getPaymentMethodMeta(sale.metodo_pago);
+    const label = meta ? `${meta.icon} ${meta.shortLabel}` : 'Sin especificar';
+    methodCounts[label] = (methodCounts[label] || 0) + 1;
+  });
+  const breakdownText = Object.keys(methodCounts).length
+    ? Object.entries(methodCounts).map(([label, qty]) => `${label} (${qty})`).join(' · ')
+    : 'Sin registros';
 
   if (countEl) countEl.textContent = filtered.length;
+  if (breakdownEl) breakdownEl.textContent = breakdownText;
   if (grandTotalEl) grandTotalEl.textContent = `${money.format(sumTotal)} MXN`;
 
   if (filtered.length === 0) {
@@ -793,6 +926,17 @@ function renderSalesList() {
   listEl.innerHTML = filtered.map(sale => {
     const cliente = sale.usuarios || {};
     const detalles = sale.detalle_venta || [];
+    const paymentMeta = getPaymentMethodMeta(sale.metodo_pago);
+
+    const paymentBadgeHTML = paymentMeta
+      ? `<span class="payment-badge">${paymentMeta.icon} ${escapeHTML(paymentMeta.label)}</span>`
+      : `<span class="payment-badge unregistered">Método no registrado</span>`;
+
+    const paymentDetailText = paymentMeta
+      ? `${paymentMeta.icon} ${escapeHTML(paymentMeta.label)}`
+      : 'No registrado';
+
+    const totalUnidades = detalles.reduce((sum, det) => sum + (Number(det.cantidad) || 0), 0);
 
     const detallesHTML = detalles.map(det => {
       const comp = det.componentes || {};
@@ -827,22 +971,31 @@ function renderSalesList() {
           <div>
             <strong style="font-size:14px; color:#0f172a;">${escapeHTML(sale.folio_venta)}</strong>
             <span style="margin-left:8px; padding:2px 8px; border-radius:999px; font-size:10px; font-weight:700; ${saleStatusBadgeStyle(sale.estado)}">${escapeHTML(sale.estado)}</span>
+            ${paymentBadgeHTML}
             <p style="margin:4px 0 0; font-size:12px; color:#475569;">
               Cliente: <strong>${escapeHTML(cliente.nombre || 'N/A')}</strong> (${escapeHTML(cliente.correo || '')})
             </p>
-            <small style="color:#64748b;">Fecha: ${formatDate(sale.fecha_venta)}</small>
+            <small style="color:#64748b;">Fecha: ${formatDate(sale.fecha_venta)} · Pago: <strong>${paymentDetailText}</strong></small>
           </div>
           <div style="text-align:right;">
-            <span style="font-size:11px; color:#64748b; display:block;">Total</span>
+            <span style="font-size:11px; color:#64748b; display:block;">Total (${totalUnidades} pza${totalUnidades === 1 ? '' : 's'})</span>
             <strong style="font-size:15px; color:#0869e8;">${money.format(Number(sale.total))} MXN</strong>
           </div>
         </div>
 
         <details style="background:#f8fafc; padding:8px; border-radius:6px; border:1px solid #e2e8f0;">
           <summary style="cursor:pointer; font-size:12px; font-weight:600; color:#334155;">
-            Ver ${detalles.length} producto(s) vendido(s)
+            Ver detalle de venta (${detalles.length} partida${detalles.length === 1 ? '' : 's'})
           </summary>
-          <ul style="list-style:none; padding:6px 0 0; margin:0;">
+
+          <div class="sale-detail-meta" style="margin-top: 8px;">
+            <span><strong>Método de pago:</strong> ${paymentDetailText}</span>
+            <span><strong>Estado de cobro:</strong> ${escapeHTML(sale.estado)}</span>
+            <span><strong>Teléfono:</strong> ${escapeHTML(cliente.numero_tel || 'No registrado')}</span>
+            <span><strong>Entrega:</strong> ${escapeHTML(cliente.direccion || 'En tienda / Sin dirección')}</span>
+          </div>
+
+          <ul style="list-style:none; padding:4px 0 0; margin:0;">
             ${detallesHTML || '<li style="font-size:12px; color:#64748b;">Sin partidas registradas.</li>'}
           </ul>
         </details>
@@ -1905,6 +2058,29 @@ function initEvents() {
     if (!card) return;
     event.dataTransfer.setData('text/plain', card.dataset.dragId);
     event.dataTransfer.effectAllowed = 'copy';
+   });
+  // Selección de método de pago
+  document.querySelector('#payment-methods-grid')?.addEventListener('change', event => {
+    const radio = event.target.closest('input[name="payment-method"]');
+    if (radio) {
+      selectPaymentMethod(radio.value);
+    }
+  });
+
+  // Búsqueda
+  document.querySelector('#search-form')?.addEventListener('submit', event => {
+    event.preventDefault();
+    runCatalogSearch();
+  });
+  document.querySelector('#search-input')?.addEventListener('input', runCatalogSearch);
+
+  // Carrito
+  document.querySelector('#cart-button')?.addEventListener('click', () => {
+    const feedbackEl = document.querySelector('#sale-feedback');
+    if (feedbackEl) feedbackEl.textContent = '';
+    if (!selectedPaymentMethod) resetPaymentSelection();
+    updateCartUI();
+    document.querySelector('#cart-dialog')?.showModal();
   });
 
   document.querySelectorAll('.drop-slot').forEach(slot => {
@@ -1956,6 +2132,7 @@ function initEvents() {
   document.querySelector('#refresh-sales-btn')?.addEventListener('click', loadSales);
   document.querySelector('#sales-search')?.addEventListener('input', renderSalesList);
   document.querySelector('#sales-filter-status')?.addEventListener('change', renderSalesList);
+  document.querySelector('#sales-filter-payment')?.addEventListener('change', renderSalesList);
 
   // Inventario (solo ADMIN)
   const invDialog = document.querySelector('#inventory-dialog');

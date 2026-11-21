@@ -251,6 +251,56 @@
         <input type="text" id="sale-address" placeholder="Av. Vallarta 1234, Guadalajara" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;" />
       </label>
 
+      <!-- Selección de Método de Pago -->
+      <fieldset class="payment-fieldset" aria-describedby="payment-guidance">
+        <legend>Método de pago *</legend>
+        <div class="payment-methods-grid" id="payment-methods-grid" role="radiogroup" aria-label="Opciones de pago disponibles">
+          <label class="payment-option" data-method="TARJETA">
+            <input type="radio" name="payment-method" value="TARJETA" />
+            <span class="payment-icon" aria-hidden="true">💳</span>
+            <span class="payment-info">
+              <strong>Tarjeta Crédito / Débito</strong>
+              <small>Aprobación inmediata · Hasta 12 MSI</small>
+            </span>
+            <span class="payment-check" aria-hidden="true">✓</span>
+          </label>
+
+          <label class="payment-option" data-method="TRANSFERENCIA">
+            <input type="radio" name="payment-method" value="TRANSFERENCIA" />
+            <span class="payment-icon" aria-hidden="true">🏦</span>
+            <span class="payment-info">
+              <strong>Transferencia SPEI</strong>
+              <small>Sin comisiones · Confirmación bancaria</small>
+            </span>
+            <span class="payment-check" aria-hidden="true">✓</span>
+          </label>
+
+          <label class="payment-option" data-method="PAYPAL">
+            <input type="radio" name="payment-method" value="PAYPAL" />
+            <span class="payment-icon" aria-hidden="true">🅿️</span>
+            <span class="payment-info">
+              <strong>PayPal / Billetera Digital</strong>
+              <small>Pago protegido sin compartir datos bancarios</small>
+            </span>
+            <span class="payment-check" aria-hidden="true">✓</span>
+          </label>
+
+          <label class="payment-option" data-method="EFECTIVO">
+            <input type="radio" name="payment-method" value="EFECTIVO" />
+            <span class="payment-icon" aria-hidden="true">💵</span>
+            <span class="payment-info">
+              <strong>Efectivo / Pago en Tienda</strong>
+              <small>Liquidación en sucursal o contra entrega</small>
+            </span>
+            <span class="payment-check" aria-hidden="true">✓</span>
+          </label>
+        </div>
+
+        <div id="payment-guidance" class="payment-guidance info" role="status" aria-live="polite">
+          ℹ️ Selecciona una forma de pago para continuar con tu compra.
+        </div>
+      </fieldset>
+
       <label style="display: flex; flex-direction: column; font-size: 12px; gap: 4px;">
         <span>Estado de la venta *</span>
         <select id="sale-status" required style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;">
@@ -284,13 +334,22 @@
         <option value="CANCELADA">CANCELADA</option>
       </select>
 
+      <select id="sales-filter-payment" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; background: #fff;">
+        <option value="TODOS">Todos los métodos de pago</option>
+        <option value="TARJETA">💳 Tarjeta Crédito / Débito</option>
+        <option value="TRANSFERENCIA">🏦 Transferencia SPEI</option>
+        <option value="PAYPAL">🅿️ PayPal / Billetera</option>
+        <option value="EFECTIVO">💵 Efectivo / Tienda</option>
+      </select>
+
       <button type="button" id="refresh-sales-btn" class="primary-button" style="padding: 8px 14px; font-size: 12px;">
         ↻ Actualizar
       </button>
     </div>
 
-    <div id="sales-summary-bar" style="display: flex; justify-content: space-between; background: #f8fafc; padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 12px; margin-bottom: 12px;">
+    <div id="sales-summary-bar" style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; background: #f8fafc; padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 12px; margin-bottom: 12px;">
       <span>Total de ventas mostradas: <strong id="sales-count">0</strong></span>
+      <span>Desglose pagos: <strong id="sales-payment-breakdown">Sin registros</strong></span>
       <span>Monto acumulado: <strong id="sales-grand-total" style="color: #0869e8;">$0.00 MXN</strong></span>
     </div>
 
