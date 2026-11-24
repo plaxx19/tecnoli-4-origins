@@ -2177,6 +2177,26 @@ function initEvents() {
   });
 }
 
+function runCatalogSearch(event) {
+  if (event) event.preventDefault();
+  const input = document.querySelector('#search-input');
+  const q = input ? input.value.trim() : '';
+
+  // Filtrar ventas si existe el buscador de ventas
+  const salesInput = document.querySelector('#sales-search');
+  if (salesInput) {
+    salesInput.value = q;
+    if (typeof renderSalesList === 'function') renderSalesList();
+  }
+
+  // Filtrar catálogo de productos
+  const filtered = q
+    ? products.filter(p => `${p.marca} ${p.modelo} ${p.tipo}`.toLowerCase().includes(q.toLowerCase()))
+    : products;
+
+  if (typeof renderProducts === 'function') renderProducts(filtered);
+}
+
 // ------------------------------------------------------------------
 // 13. Arranque
 // ------------------------------------------------------------------
